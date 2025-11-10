@@ -1,0 +1,19 @@
+[package]
+name = "echo-example"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+quill-server = { workspace = true }
+quill-client = { workspace = true }
+quill-core = { workspace = true }
+tokio = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+bytes = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+prost-build = { workspace = true }

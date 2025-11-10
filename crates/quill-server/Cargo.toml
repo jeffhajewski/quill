@@ -1,0 +1,30 @@
+[package]
+name = "quill-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Server SDK for the Quill RPC framework"
+
+[dependencies]
+quill-core = { workspace = true }
+quill-transport = { workspace = true }
+tokio = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true, features = ["server", "server-auto", "tokio"] }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+pin-project = "1.1"
+
+[dev-dependencies]
+tokio = { workspace = true }

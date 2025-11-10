@@ -1,0 +1,43 @@
+// Quill RPC annotations
+syntax = "proto3";
+
+package quill;
+
+import "google/protobuf/descriptor.proto";
+
+// RPC-level options for Quill
+message RpcOptions {
+  // If true, this RPC is idempotent and eligible for 0-RTT on Hyper profile
+  bool idempotent = 1;
+
+  // Cache TTL in milliseconds (for idempotent read-only RPCs)
+  optional int64 cache_ttl_ms = 2;
+
+  // List of typed error details this RPC may throw
+  repeated string throws = 3;
+
+  // If true, prefer datagrams if available; disable Nagle-like batching
+  bool real_time = 4;
+
+  // Throughput hint: "low" | "medium" | "high"
+  optional string throughput_hint = 5;
+}
+
+// Service-level options for Quill
+message ServiceOptions {
+  // Base URL path prefix (overrides default /{package}.{Service}/)
+  optional string path_prefix = 1;
+
+  // Minimum Prism profile required
+  optional string min_profile = 2; // "classic" | "turbo" | "hyper"
+}
+
+// Extend MethodOptions with Quill RPC options
+extend google.protobuf.MethodOptions {
+  RpcOptions rpc = 50001;
+}
+
+// Extend ServiceOptions with Quill service options
+extend google.protobuf.ServiceOptions {
+  ServiceOptions service = 50002;
+}

@@ -1,0 +1,73 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/quill-core",
+    "crates/quill-proto",
+    "crates/quill-transport",
+    "crates/quill-server",
+    "crates/quill-client",
+    "crates/quill-codegen",
+    "crates/quill-cli",
+    "examples/echo",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/quill"
+homepage = "https://github.com/your-org/quill"
+
+[workspace.dependencies]
+# Core async/networking
+tokio = { version = "1.40", features = ["full"] }
+hyper = { version = "1.4", features = ["http1", "http2", "client", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+h2 = "0.4"
+http = "1.1"
+http-body = "1.0"
+http-body-util = "0.1"
+
+# Protobuf
+prost = "0.13"
+prost-types = "0.13"
+prost-build = "0.13"
+
+# Middleware & utilities
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["compression-zstd", "trace"] }
+axum = { version = "0.7", features = ["http2"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling & serialization
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bytes = "1.7"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Compression
+zstd = "0.13"
+
+# Testing
+criterion = "0.5"
+
+# Internal workspace crates
+quill-core = { path = "crates/quill-core" }
+quill-proto = { path = "crates/quill-proto" }
+quill-transport = { path = "crates/quill-transport" }
+quill-server = { path = "crates/quill-server" }
+quill-client = { path = "crates/quill-client" }
+quill-codegen = { path = "crates/quill-codegen" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

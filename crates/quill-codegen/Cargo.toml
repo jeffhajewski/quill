@@ -1,0 +1,15 @@
+[package]
+name = "quill-codegen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Code generator (protoc plugin) for the Quill RPC framework"
+
+[dependencies]
+quill-proto = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+prost-build = { workspace = true }
