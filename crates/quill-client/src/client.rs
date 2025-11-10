@@ -10,6 +10,7 @@ use crate::streaming::encode_request_stream;
 use std::fmt;
 use std::pin::Pin;
 use tokio_stream::Stream;
+use tracing::instrument;
 
 /// Quill RPC client
 pub struct QuillClient {
@@ -70,6 +71,15 @@ impl QuillClient {
     ///
     /// # Returns
     /// The protobuf-encoded response bytes
+    #[instrument(
+        skip(self, request),
+        fields(
+            rpc.service = service,
+            rpc.method = method,
+            rpc.system = "quill",
+            otel.kind = "client"
+        )
+    )]
     pub async fn call(
         &self,
         service: &str,
@@ -167,6 +177,16 @@ impl QuillClient {
     ///
     /// # Returns
     /// The protobuf-encoded response bytes
+    #[instrument(
+        skip(self, request),
+        fields(
+            rpc.service = service,
+            rpc.method = method,
+            rpc.system = "quill",
+            rpc.streaming = "client",
+            otel.kind = "client"
+        )
+    )]
     pub async fn call_client_streaming(
         &self,
         service: &str,
@@ -189,6 +209,16 @@ impl QuillClient {
     ///
     /// # Returns
     /// A stream of response messages
+    #[instrument(
+        skip(self, request),
+        fields(
+            rpc.service = service,
+            rpc.method = method,
+            rpc.system = "quill",
+            rpc.streaming = "server",
+            otel.kind = "client"
+        )
+    )]
     pub async fn call_server_streaming(
         &self,
         service: &str,
@@ -252,6 +282,16 @@ impl QuillClient {
     ///
     /// # Returns
     /// A stream of response messages
+    #[instrument(
+        skip(self, request),
+        fields(
+            rpc.service = service,
+            rpc.method = method,
+            rpc.system = "quill",
+            rpc.streaming = "bidirectional",
+            otel.kind = "client"
+        )
+    )]
     pub async fn call_bidi_streaming(
         &self,
         service: &str,

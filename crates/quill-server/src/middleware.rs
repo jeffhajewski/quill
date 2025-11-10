@@ -4,12 +4,15 @@
 //! - Compression (zstd)
 //! - Decompression of incoming requests
 //! - Content negotiation
+//! - OpenTelemetry tracing
 
 use bytes::Bytes;
 use http::{header, Request, Response};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use quill_core::QuillError;
+use tracing::{span, Level, Span};
+use std::collections::HashMap;
 
 /// Compression level for zstd
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 3;
@@ -120,6 +123,103 @@ impl Default for CompressionLayer {
     }
 }
 
+// ============================================================================
+// OpenTelemetry Tracing
+// ============================================================================
+
+/// Create a tracing span for an RPC request
+///
+/// This creates a span with the RPC service and method as attributes,
+/// following OpenTelemetry semantic conventions for RPC systems.
+pub fn create_rpc_span(service: &str, method: &str) -> Span {
+    span!(
+        Level::INFO,
+        "rpc.request",
+        rpc.service = service,
+        rpc.method = method,
+        rpc.system = "quill",
+        otel.kind = "server",
+    )
+}
+
+/// Extract trace context from HTTP headers
+///
+/// This extracts distributed tracing context (traceparent, tracestate)
+/// from HTTP headers following W3C Trace Context specification.
+pub fn extract_trace_context(req: &Request<Incoming>) -> HashMap<String, String> {
+    let mut context = HashMap::new();
+
+    // Extract traceparent header (W3C Trace Context)
+    if let Some(traceparent) = req.headers().get("traceparent") {
+        if let Ok(value) = traceparent.to_str() {
+            context.insert("traceparent".to_string(), value.to_string());
+        }
+    }
+
+    // Extract tracestate header
+    if let Some(tracestate) = req.headers().get("tracestate") {
+        if let Ok(value) = tracestate.to_str() {
+            context.insert("tracestate".to_string(), value.to_string());
+        }
+    }
+
+    // Extract baggage header (for cross-cutting concerns)
+    if let Some(baggage) = req.headers().get("baggage") {
+        if let Ok(value) = baggage.to_str() {
+            context.insert("baggage".to_string(), value.to_string());
+        }
+    }
+
+    context
+}
+
+/// Record common RPC attributes on a span
+pub fn record_rpc_attributes(span: &Span, service: &str, method: &str, compressed: bool) {
+    span.record("rpc.service", service);
+    span.record("rpc.method", method);
+    span.record("rpc.system", "quill");
+    if compressed {
+        span.record("rpc.compression", "zstd");
+    }
+}
+
+/// Record the RPC result on a span
+pub fn record_rpc_result(span: &Span, success: bool, error: Option<&str>) {
+    if success {
+        span.record("rpc.status", "ok");
+    } else {
+        span.record("rpc.status", "error");
+        if let Some(err) = error {
+            span.record("rpc.error", err);
+        }
+    }
+}
+
+/// Tracing middleware layer
+pub struct TracingLayer {
+    enabled: bool,
+}
+
+impl TracingLayer {
+    pub fn new() -> Self {
+        Self { enabled: true }
+    }
+
+    pub fn disabled() -> Self {
+        Self { enabled: false }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+impl Default for TracingLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +255,22 @@ mod tests {
         assert_eq!(original, &decompressed[..]);
         // Should achieve good compression on repeating data
         assert!(compressed.len() < original.len() / 10);
+    }
+
+    #[test]
+    fn test_create_rpc_span() {
+        // Create a span - just verify it doesn't panic
+        let _span = create_rpc_span("echo.v1.EchoService", "Echo");
+        // Metadata might not be available without an active subscriber
+        // The important part is that the span is created successfully
+    }
+
+    #[test]
+    fn test_tracing_layer() {
+        let layer = TracingLayer::new();
+        assert!(layer.is_enabled());
+
+        let disabled = TracingLayer::disabled();
+        assert!(!disabled.is_enabled());
     }
 }

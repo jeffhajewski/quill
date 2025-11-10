@@ -43,6 +43,10 @@ axum = { version = "0.7", features = ["http2"] }
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+opentelemetry = "0.24"
+opentelemetry-otlp = { version = "0.17", features = ["tonic", "metrics", "trace"] }
+opentelemetry_sdk = { version = "0.24", features = ["rt-tokio", "trace"] }
+tracing-opentelemetry = "0.25"
 
 # Error handling & serialization
 thiserror = "1.0"
