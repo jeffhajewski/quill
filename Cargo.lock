@@ -260,6 +260,7 @@ dependencies = [
  "quill-core",
  "quill-server",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
 ]
