@@ -27,6 +27,7 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 pin-project = "1.1"
+zstd = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

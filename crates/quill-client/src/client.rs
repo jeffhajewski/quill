@@ -16,6 +16,8 @@ pub struct QuillClient {
     base_url: String,
     client: Client<HttpConnector, Full<Bytes>>,
     profile_preference: ProfilePreference,
+    enable_compression: bool,
+    compression_level: i32,
 }
 
 impl QuillClient {
@@ -27,12 +29,36 @@ impl QuillClient {
             base_url: base_url.into(),
             client,
             profile_preference: ProfilePreference::default_preference(),
+            enable_compression: false,
+            compression_level: 3,
         }
     }
 
     /// Create a builder for configuring the client
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
+    }
+
+    /// Compress data using zstd if compression is enabled
+    fn maybe_compress(&self, data: Bytes) -> Result<Bytes, QuillError> {
+        if !self.enable_compression {
+            return Ok(data);
+        }
+
+        zstd::encode_all(&data[..], self.compression_level)
+            .map(Bytes::from)
+            .map_err(|e| QuillError::Transport(format!("Compression failed: {}", e)))
+    }
+
+    /// Decompress data using zstd if it was compressed
+    fn maybe_decompress(&self, data: Bytes, content_encoding: Option<&str>) -> Result<Bytes, QuillError> {
+        if let Some("zstd") = content_encoding {
+            zstd::decode_all(&data[..])
+                .map(Bytes::from)
+                .map_err(|e| QuillError::Transport(format!("Decompression failed: {}", e)))
+        } else {
+            Ok(data)
+        }
     }
 
     /// Make a unary RPC call
@@ -53,14 +79,32 @@ impl QuillClient {
         // Build the full URL
         let url = format!("{}/{}/{}", self.base_url, service, method);
 
+        // Compress request if enabled
+        let (request_body, content_encoding) = if self.enable_compression {
+            let compressed = self.maybe_compress(request)?;
+            (compressed, Some("zstd"))
+        } else {
+            (request, None)
+        };
+
         // Build the HTTP request
-        let req = Request::builder()
+        let mut req_builder = Request::builder()
             .method(Method::POST)
             .uri(&url)
             .header("Content-Type", "application/proto")
             .header("Accept", "application/proto")
-            .header("Prefer", self.profile_preference.to_header_value())
-            .body(Full::new(request))
+            .header("Prefer", self.profile_preference.to_header_value());
+
+        // Add compression headers if enabled
+        if self.enable_compression {
+            req_builder = req_builder.header("Accept-Encoding", "zstd");
+        }
+        if let Some(encoding) = content_encoding {
+            req_builder = req_builder.header("Content-Encoding", encoding);
+        }
+
+        let req = req_builder
+            .body(Full::new(request_body))
             .map_err(|e| QuillError::Transport(format!("Failed to build request: {}", e)))?;
 
         // Send the request
@@ -93,6 +137,13 @@ impl QuillClient {
             )));
         }
 
+        // Get content encoding before consuming response
+        let content_encoding = resp
+            .headers()
+            .get("content-encoding")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
         // Read response body
         let body_bytes = resp
             .into_body()
@@ -100,6 +151,9 @@ impl QuillClient {
             .await
             .map_err(|e| QuillError::Transport(format!("Failed to read response: {}", e)))?
             .to_bytes();
+
+        // Decompress if needed
+        let body_bytes = self.maybe_decompress(body_bytes, content_encoding.as_deref())?;
 
         Ok(body_bytes)
     }
@@ -370,6 +424,8 @@ impl fmt::Debug for QuillClient {
 pub struct ClientBuilder {
     base_url: Option<String>,
     profile_preference: Option<ProfilePreference>,
+    enable_compression: bool,
+    compression_level: i32,
 }
 
 impl ClientBuilder {
@@ -378,6 +434,8 @@ impl ClientBuilder {
         Self {
             base_url: None,
             profile_preference: None,
+            enable_compression: false,
+            compression_level: 3,
         }
     }
 
@@ -390,6 +448,18 @@ impl ClientBuilder {
     /// Set the profile preference
     pub fn profile_preference(mut self, pref: ProfilePreference) -> Self {
         self.profile_preference = Some(pref);
+        self
+    }
+
+    /// Enable zstd compression for requests and responses
+    pub fn enable_compression(mut self, enable: bool) -> Self {
+        self.enable_compression = enable;
+        self
+    }
+
+    /// Set the compression level (0-22, default 3)
+    pub fn compression_level(mut self, level: i32) -> Self {
+        self.compression_level = level;
         self
     }
 
@@ -407,6 +477,8 @@ impl ClientBuilder {
             profile_preference: self
                 .profile_preference
                 .unwrap_or_else(ProfilePreference::default_preference),
+            enable_compression: self.enable_compression,
+            compression_level: self.compression_level,
         })
     }
 }

@@ -726,6 +726,7 @@ dependencies = [
  "tokio-stream",
  "tower",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
@@ -781,6 +782,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
