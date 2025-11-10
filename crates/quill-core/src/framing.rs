@@ -1,7 +1,7 @@
 //! Stream framing for Quill RPC.
 //!
 //! Frame format: [length varint][flags byte][payload bytes]
-//! Flags: DATA(bit 0), END_STREAM(bit 1), CANCEL(bit 2)
+//! Flags: DATA(bit 0), END_STREAM(bit 1), CANCEL(bit 2), CREDIT(bit 3)
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
@@ -16,6 +16,7 @@ impl FrameFlags {
     pub const DATA: u8 = 0b0000_0001;
     pub const END_STREAM: u8 = 0b0000_0010;
     pub const CANCEL: u8 = 0b0000_0100;
+    pub const CREDIT: u8 = 0b0000_1000;
 
     pub fn new(flags: u8) -> Self {
         Self(flags)
@@ -35,6 +36,10 @@ impl FrameFlags {
 
     pub fn is_cancel(&self) -> bool {
         self.0 & Self::CANCEL != 0
+    }
+
+    pub fn is_credit(&self) -> bool {
+        self.0 & Self::CREDIT != 0
     }
 
     pub fn as_u8(&self) -> u8 {
@@ -72,6 +77,25 @@ impl Frame {
             flags: FrameFlags::new(FrameFlags::CANCEL),
             payload: Bytes::new(),
         }
+    }
+
+    /// Create a credit frame with the specified number of credits
+    pub fn credit(credits: u32) -> Self {
+        let mut buf = BytesMut::new();
+        encode_varint(credits as u64, &mut buf);
+        Self {
+            flags: FrameFlags::new(FrameFlags::CREDIT),
+            payload: buf.freeze(),
+        }
+    }
+
+    /// Decode credit value from a credit frame
+    pub fn decode_credit(&self) -> Option<u32> {
+        if !self.flags.is_credit() {
+            return None;
+        }
+        let mut cursor = std::io::Cursor::new(&self.payload[..]);
+        decode_varint(&mut cursor).map(|v| v as u32)
     }
 
     /// Encode this frame to bytes
@@ -238,5 +262,29 @@ mod tests {
         assert!(flags.is_data());
         assert!(flags.is_end_stream());
         assert!(!flags.is_cancel());
+        assert!(!flags.is_credit());
+    }
+
+    #[test]
+    fn test_credit_frame() {
+        let credits = 42u32;
+        let frame = Frame::credit(credits);
+
+        assert!(frame.flags.is_credit());
+        assert!(!frame.flags.is_data());
+        assert_eq!(frame.decode_credit(), Some(credits));
+    }
+
+    #[test]
+    fn test_credit_frame_roundtrip() {
+        let original = Frame::credit(100);
+        let encoded = original.encode();
+
+        let mut parser = FrameParser::new();
+        parser.feed(&encoded);
+
+        let decoded = parser.parse_frame().unwrap().unwrap();
+        assert!(decoded.flags.is_credit());
+        assert_eq!(decoded.decode_credit(), Some(100));
     }
 }

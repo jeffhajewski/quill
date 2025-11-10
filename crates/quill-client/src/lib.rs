@@ -8,5 +8,7 @@
 
 pub mod client;
 pub mod retry;
+pub mod streaming;
 
 pub use client::QuillClient;
+pub use streaming::RpcRequest;
