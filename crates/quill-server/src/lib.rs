@@ -5,12 +5,15 @@
 //! - Handler traits
 //! - Middleware (Problem Details, compression, tracing)
 //! - Server runtime
+//! - Streaming support
 
 pub mod handler;
 pub mod middleware;
 pub mod router;
 pub mod server;
+pub mod streaming;
 
 pub use handler::RpcHandler;
 pub use router::{parse_rpc_path, RpcRouter};
 pub use server::{QuillServer, ServerBuilder};
+pub use streaming::{FramedResponseStream, RpcResponse};

@@ -5,11 +5,14 @@
 //! - Problem Details error model
 //! - Prism transport profiles
 //! - Flow control primitives
+//! - Streaming utilities
 
 pub mod error;
 pub mod framing;
 pub mod profile;
+pub mod stream;
 
 pub use error::{ProblemDetails, QuillError};
 pub use framing::{Frame, FrameFlags, FrameParser};
 pub use profile::{PrismProfile, ProfilePreference};
+pub use stream::{FrameStream, StreamWriter};

@@ -9,6 +9,7 @@ members = [
     "crates/quill-codegen",
     "crates/quill-cli",
     "examples/echo",
+    "examples/streaming",
 ]
 
 [workspace.package]

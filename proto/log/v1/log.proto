@@ -1,0 +1,25 @@
+// Log service for testing server-side streaming
+syntax = "proto3";
+
+package log.v1;
+
+import "quill/annotations.proto";
+
+// Log service that demonstrates server-side streaming
+service LogService {
+  // Stream log entries
+  rpc Tail(TailRequest) returns (stream LogEntry) {
+    option (quill.rpc) = { real_time: true };
+  }
+}
+
+message TailRequest {
+  // Maximum number of entries to return
+  int32 max_entries = 1;
+}
+
+message LogEntry {
+  string timestamp = 1;
+  string level = 2;
+  string message = 3;
+}

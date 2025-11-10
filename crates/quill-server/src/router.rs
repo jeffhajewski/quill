@@ -3,18 +3,20 @@
 //! Routes match the pattern: /{package}.{Service}/{Method}
 
 use bytes::Bytes;
+use futures_util::stream::StreamExt as FuturesStreamExt;
 use http::{Method, Request, Response, StatusCode};
-use http_body_util::Full;
-use hyper::body::Incoming;
-use quill_core::{ProblemDetails, QuillError};
+use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
+use hyper::body::{Frame as HyperFrame, Incoming};
+use quill_core::{Frame, ProblemDetails, QuillError};
+use crate::streaming::RpcResponse;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// Type alias for async handler functions
+/// Type alias for async handler functions (now returns RpcResponse for streaming support)
 pub type HandlerFn =
-    Arc<dyn Fn(Bytes) -> Pin<Box<dyn Future<Output = Result<Bytes, QuillError>> + Send>> + Send + Sync>;
+    Arc<dyn Fn(Bytes) -> Pin<Box<dyn Future<Output = Result<RpcResponse, QuillError>> + Send>> + Send + Sync>;
 
 /// RPC Router
 pub struct RpcRouter {
@@ -34,14 +36,30 @@ impl RpcRouter {
     pub fn register<F, Fut>(&mut self, path: impl Into<String>, handler: F)
     where
         F: Fn(Bytes) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Bytes, QuillError>> + Send + 'static,
+        Fut: Future<Output = Result<RpcResponse, QuillError>> + Send + 'static,
     {
         let handler = Arc::new(move |req: Bytes| Box::pin(handler(req)) as Pin<Box<_>>);
         self.routes.insert(path.into(), handler);
     }
 
+    /// Register a unary handler (convenience method that wraps response in RpcResponse::Unary)
+    pub fn register_unary<F, Fut>(&mut self, path: impl Into<String>, handler: F)
+    where
+        F: Fn(Bytes) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Bytes, QuillError>> + Send + 'static,
+    {
+        let handler = Arc::new(handler);
+        self.register(path, move |req: Bytes| {
+            let handler = Arc::clone(&handler);
+            async move {
+                let result = handler(req).await?;
+                Ok(RpcResponse::Unary(result))
+            }
+        });
+    }
+
     /// Route an incoming request
-    pub async fn route(&self, req: Request<Incoming>) -> Response<Full<Bytes>> {
+    pub async fn route(&self, req: Request<Incoming>) -> Response<UnsyncBoxBody<Bytes, QuillError>> {
         // Parse the path
         let path = req.uri().path();
 
@@ -83,18 +101,44 @@ impl RpcRouter {
 
         // Call handler
         match handler(body).await {
-            Ok(response_bytes) => Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "application/proto")
-                .body(Full::new(response_bytes))
-                .unwrap(),
+            Ok(RpcResponse::Unary(response_bytes)) => {
+                // Unary response
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/proto")
+                    .body(Full::new(response_bytes).map_err(|never| match never {}).boxed_unsync())
+                    .unwrap()
+            }
+            Ok(RpcResponse::Streaming(stream)) => {
+                // Streaming response - encode each message as a frame
+                let frame_stream = stream.map(|result| match result {
+                    Ok(data) => {
+                        let frame = Frame::data(data);
+                        Ok(HyperFrame::data(frame.encode()))
+                    }
+                    Err(e) => Err(e),
+                });
+
+                // Create the end frame stream
+                let with_end = frame_stream.chain(futures_util::stream::once(async {
+                    let end_frame = Frame::end_stream();
+                    Ok(HyperFrame::data(end_frame.encode()))
+                }));
+
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Content-Type", "application/proto")
+                    .header("Transfer-Encoding", "chunked")
+                    .body(StreamBody::new(with_end).boxed_unsync())
+                    .unwrap()
+            }
             Err(QuillError::ProblemDetails(pd)) => {
                 // Return Problem Details as JSON
                 let json = pd.to_json().unwrap_or_else(|_| "{}".to_string());
                 Response::builder()
                     .status(StatusCode::from_u16(pd.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
                     .header("Content-Type", "application/problem+json")
-                    .body(Full::new(Bytes::from(json)))
+                    .body(Full::new(Bytes::from(json)).map_err(|never| match never {}).boxed_unsync())
                     .unwrap()
             }
             Err(e) => Self::error_response(
@@ -113,7 +157,7 @@ impl RpcRouter {
     }
 
     /// Helper to create error responses
-    fn error_response(status: StatusCode, title: &str, detail: Option<&str>) -> Response<Full<Bytes>> {
+    fn error_response(status: StatusCode, title: &str, detail: Option<&str>) -> Response<UnsyncBoxBody<Bytes, QuillError>> {
         let mut pd = ProblemDetails::new(status, title);
         if let Some(d) = detail {
             pd = pd.with_detail(d);
@@ -124,7 +168,7 @@ impl RpcRouter {
         Response::builder()
             .status(status)
             .header("Content-Type", "application/problem+json")
-            .body(Full::new(Bytes::from(json)))
+            .body(Full::new(Bytes::from(json)).map_err(|never| match never {}).boxed_unsync())
             .unwrap()
     }
 }

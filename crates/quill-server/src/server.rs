@@ -1,6 +1,7 @@
 //! Quill server implementation
 
 use crate::router::RpcRouter;
+use crate::streaming::RpcResponse;
 use bytes::Bytes;
 use http::Request;
 use hyper::body::Incoming;
@@ -72,12 +73,23 @@ impl ServerBuilder {
         }
     }
 
-    /// Register a handler for an RPC method
+    /// Register a unary handler for an RPC method
     /// Path format: "{package}.{Service}/{Method}"
     pub fn register<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
     where
         F: Fn(Bytes) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Bytes, QuillError>> + Send + 'static,
+    {
+        self.router.register_unary(path, handler);
+        self
+    }
+
+    /// Register a streaming handler for an RPC method
+    /// Path format: "{package}.{Service}/{Method}"
+    pub fn register_streaming<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
+    where
+        F: Fn(Bytes) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<RpcResponse, QuillError>> + Send + 'static,
     {
         self.router.register(path, handler);
         self
