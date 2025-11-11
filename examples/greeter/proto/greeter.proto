@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package greeter.v1;
+
+// Greeter service provides greetings
+service Greeter {
+  // Send a greeting
+  rpc SayHello(HelloRequest) returns (HelloReply);
+
+  // Stream multiple greetings
+  rpc SayHelloStream(HelloRequest) returns (stream HelloReply);
+}
+
+// Request message for greeting
+message HelloRequest {
+  string name = 1;
+}
+
+// Response message with greeting
+message HelloReply {
+  string message = 1;
+}

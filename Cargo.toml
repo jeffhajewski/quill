@@ -12,6 +12,7 @@ members = [
     "examples/streaming",
     "examples/chat",
     "examples/upload",
+    "examples/greeter",
 ]
 
 [workspace.package]
