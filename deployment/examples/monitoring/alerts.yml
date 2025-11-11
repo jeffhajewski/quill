@@ -1,0 +1,214 @@
+# Prometheus alerting rules for Quill services
+
+groups:
+  - name: quill_service_alerts
+    interval: 30s
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(quill_requests_failed_total[5m])
+            / rate(quill_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # Critical error rate
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            rate(quill_requests_failed_total[5m])
+            / rate(quill_requests_total[5m])
+          ) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+          component: quill
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 20%)"
+
+      # High latency
+      - alert: HighLatency
+        expr: quill_request_duration_ms > 500
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High request latency detected"
+          description: "Average latency is {{ $value }}ms (threshold: 500ms)"
+
+      # Very high latency
+      - alert: VeryHighLatency
+        expr: quill_request_duration_ms > 2000
+        for: 2m
+        labels:
+          severity: critical
+          component: quill
+        annotations:
+          summary: "Very high request latency detected"
+          description: "Average latency is {{ $value }}ms (threshold: 2000ms)"
+
+      # Service down
+      - alert: ServiceDown
+        expr: up{job="quill-services"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: quill
+        annotations:
+          summary: "Quill service is down"
+          description: "Service {{ $labels.instance }} has been down for more than 1 minute"
+
+      # Health check failing
+      - alert: HealthCheckFailing
+        expr: quill_health_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: quill
+        annotations:
+          summary: "Health check failing"
+          description: "Service health check has been failing for more than 2 minutes"
+
+      # Dependency unhealthy
+      - alert: DependencyUnhealthy
+        expr: quill_dependency_health == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "Dependency health check failing"
+          description: "Dependency {{ $labels.dependency }} is unhealthy"
+
+      # High connection count
+      - alert: HighConnectionCount
+        expr: quill_requests_in_flight > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High number of active connections"
+          description: "{{ $value }} active connections (threshold: 100)"
+
+      # Low request rate (possible issue)
+      - alert: LowRequestRate
+        expr: rate(quill_requests_total[5m]) < 0.1
+        for: 10m
+        labels:
+          severity: info
+          component: quill
+        annotations:
+          summary: "Unusually low request rate"
+          description: "Request rate is {{ $value }} req/s (may indicate an issue)"
+
+      # Endpoint-specific high error rate
+      - alert: EndpointHighErrorRate
+        expr: |
+          (
+            rate(quill_endpoint_errors_total[5m])
+            / rate(quill_endpoint_requests_total[5m])
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High error rate on endpoint"
+          description: "Endpoint {{ $labels.endpoint }} has {{ $value | humanizePercentage }} error rate"
+
+      # Endpoint-specific high latency
+      - alert: EndpointHighLatency
+        expr: quill_endpoint_latency_ms > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High latency on endpoint"
+          description: "Endpoint {{ $labels.endpoint }} has {{ $value }}ms average latency"
+
+  - name: quill_resource_alerts
+    interval: 30s
+    rules:
+      # High memory usage (if container metrics available)
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes{pod=~"quill-.*"}
+          / container_spec_memory_limit_bytes{pod=~"quill-.*"}
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High memory usage"
+          description: "Pod {{ $labels.pod }} is using {{ $value | humanizePercentage }} of memory limit"
+
+      # High CPU usage (if container metrics available)
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{pod=~"quill-.*"}[5m])
+          / container_spec_cpu_quota{pod=~"quill-.*"}
+          * 100000 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "High CPU usage"
+          description: "Pod {{ $labels.pod }} is using {{ $value }}% of CPU limit"
+
+      # Pod restarts
+      - alert: FrequentPodRestarts
+        expr: |
+          rate(kube_pod_container_status_restarts_total{pod=~"quill-.*"}[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: quill
+        annotations:
+          summary: "Frequent pod restarts detected"
+          description: "Pod {{ $labels.pod }} is restarting frequently"
+
+  - name: quill_slo_alerts
+    interval: 1m
+    rules:
+      # SLO: 99.9% availability
+      - alert: SLOAvailabilityBreach
+        expr: |
+          (
+            1 - (
+              rate(quill_requests_failed_total[1h])
+              / rate(quill_requests_total[1h])
+            )
+          ) < 0.999
+        for: 10m
+        labels:
+          severity: critical
+          component: quill
+          slo: availability
+        annotations:
+          summary: "SLO availability breach"
+          description: "Availability is {{ $value | humanizePercentage }} (SLO: 99.9%)"
+
+      # SLO: P99 latency < 500ms
+      - alert: SLOLatencyBreach
+        expr: quill_request_duration_ms > 500
+        for: 10m
+        labels:
+          severity: warning
+          component: quill
+          slo: latency
+        annotations:
+          summary: "SLO latency breach"
+          description: "P99 latency is {{ $value }}ms (SLO: 500ms)"

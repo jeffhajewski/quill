@@ -174,7 +174,7 @@ cargo test --package echo-example
 - [x] zstd compression
 - [x] OpenTelemetry tracing
 - [x] Examples for all patterns
-- [x] Integration tests (112 tests passing)
+- [x] Integration tests (116 tests passing)
 
 ### Phase 4: Code Generation
 - [x] Protoc plugin infrastructure
@@ -222,11 +222,19 @@ cargo test --package echo-example
 - [x] Security hardening best practices
 - [x] Complete deployment examples
 
+### Phase 11: Enhanced Observability
+- [x] Comprehensive metrics collection
+- [x] Prometheus-compatible metrics endpoint
+- [x] Detailed health checks with dependencies
+- [x] Production Grafana dashboard
+- [x] Prometheus alerting rules (15+ alerts)
+- [x] Complete observability documentation
+
 ### Next Steps
 
 - [ ] Add HTTP/3 Hyper profile (QUIC support)
-- [ ] Enhanced observability (custom metrics, dashboards)
 - [ ] gRPC bridge implementation
+- [ ] REST gateway with OpenAPI support
 
 ## Documentation
 
@@ -241,6 +249,7 @@ cargo test --package echo-example
 - **[Resilience](docs/resilience.md)** - Retry policies and circuit breakers
 - **[Deployment](docs/deployment.md)** - Production deployment, Docker, Kubernetes, monitoring
 - **[Deployment Examples](deployment/examples/README.md)** - Ready-to-use Docker and K8s configs
+- **[Observability](docs/observability.md)** - Metrics, health checks, Grafana dashboards, alerting
 - **[CLI Tool](crates/quill-cli/README.md)** - CLI usage and examples
 
 ## Examples
