@@ -6,11 +6,89 @@ use http_body_util::{BodyExt, Full};
 use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use hyper_util::rt::TokioExecutor;
 use quill_core::{CreditTracker, FrameParser, ProfilePreference, QuillError};
+use crate::retry::{CircuitBreaker, RetryPolicy};
 use crate::streaming::encode_request_stream;
 use std::fmt;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio_stream::Stream;
 use tracing::instrument;
+
+/// HTTP protocol version preference
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpProtocol {
+    /// HTTP/1.1 only
+    Http1,
+    /// HTTP/2 only
+    Http2,
+    /// Automatically negotiate (default)
+    Auto,
+}
+
+impl Default for HttpProtocol {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+/// Client configuration
+#[derive(Clone)]
+pub struct ClientConfig {
+    /// HTTP protocol version
+    pub http_protocol: HttpProtocol,
+    /// Connection pool idle timeout
+    pub pool_idle_timeout: Option<Duration>,
+    /// Max idle connections per host
+    pub pool_max_idle_per_host: usize,
+    /// HTTP/2 only: enable HTTP/2 adaptive window
+    pub http2_adaptive_window: bool,
+    /// HTTP/2 only: initial connection window size
+    pub http2_initial_connection_window_size: Option<u32>,
+    /// HTTP/2 only: initial stream window size
+    pub http2_initial_stream_window_size: Option<u32>,
+    /// HTTP/2 only: max concurrent streams
+    pub http2_max_concurrent_streams: Option<usize>,
+    /// HTTP/2 only: keep alive interval
+    pub http2_keep_alive_interval: Option<Duration>,
+    /// HTTP/2 only: keep alive timeout
+    pub http2_keep_alive_timeout: Option<Duration>,
+    /// Retry policy (None = no retries)
+    pub retry_policy: Option<RetryPolicy>,
+    /// Circuit breaker (None = no circuit breaking)
+    pub circuit_breaker: Option<Arc<CircuitBreaker>>,
+}
+
+impl fmt::Debug for ClientConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientConfig")
+            .field("http_protocol", &self.http_protocol)
+            .field("pool_idle_timeout", &self.pool_idle_timeout)
+            .field("pool_max_idle_per_host", &self.pool_max_idle_per_host)
+            .field("http2_adaptive_window", &self.http2_adaptive_window)
+            .field("retry_policy", &self.retry_policy.as_ref().map(|_| "<RetryPolicy>"))
+            .field("circuit_breaker", &self.circuit_breaker.as_ref().map(|_| "<CircuitBreaker>"))
+            .finish()
+    }
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            http_protocol: HttpProtocol::Auto,
+            pool_idle_timeout: Some(Duration::from_secs(90)),
+            pool_max_idle_per_host: 32,
+            http2_adaptive_window: true,
+            http2_initial_connection_window_size: Some(1024 * 1024), // 1MB
+            http2_initial_stream_window_size: Some(1024 * 1024),     // 1MB
+            http2_max_concurrent_streams: Some(100),
+            http2_keep_alive_interval: Some(Duration::from_secs(10)),
+            http2_keep_alive_timeout: Some(Duration::from_secs(20)),
+            retry_policy: None,
+            circuit_breaker: None,
+        }
+    }
+}
 
 /// Quill RPC client
 pub struct QuillClient {
@@ -19,12 +97,14 @@ pub struct QuillClient {
     profile_preference: ProfilePreference,
     enable_compression: bool,
     compression_level: i32,
+    config: ClientConfig,
 }
 
 impl QuillClient {
     /// Create a new client with the given base URL
     pub fn new(base_url: impl Into<String>) -> Self {
-        let client = Client::builder(TokioExecutor::new()).build_http();
+        let config = ClientConfig::default();
+        let client = Self::build_client(&config);
 
         Self {
             base_url: base_url.into(),
@@ -32,7 +112,80 @@ impl QuillClient {
             profile_preference: ProfilePreference::default_preference(),
             enable_compression: false,
             compression_level: 3,
+            config,
         }
+    }
+
+    /// Create a new client with custom configuration
+    pub fn with_config(base_url: impl Into<String>, config: ClientConfig) -> Self {
+        let client = Self::build_client(&config);
+
+        Self {
+            base_url: base_url.into(),
+            client,
+            profile_preference: ProfilePreference::default_preference(),
+            enable_compression: false,
+            compression_level: 3,
+            config,
+        }
+    }
+
+    /// Build an HTTP client based on configuration
+    fn build_client(config: &ClientConfig) -> Client<HttpConnector, Full<Bytes>> {
+        let mut builder = Client::builder(TokioExecutor::new());
+
+        // Configure connection pool
+        builder.pool_idle_timeout(config.pool_idle_timeout.unwrap_or(Duration::from_secs(90)));
+        builder.pool_max_idle_per_host(config.pool_max_idle_per_host);
+
+        // Configure HTTP protocol
+        match config.http_protocol {
+            HttpProtocol::Http1 => {
+                builder.http2_only(false);
+            }
+            HttpProtocol::Http2 => {
+                builder.http2_only(true);
+
+                // Configure HTTP/2 settings
+                if config.http2_adaptive_window {
+                    builder.http2_adaptive_window(true);
+                }
+                if let Some(size) = config.http2_initial_connection_window_size {
+                    builder.http2_initial_connection_window_size(size);
+                }
+                if let Some(size) = config.http2_initial_stream_window_size {
+                    builder.http2_initial_stream_window_size(size);
+                }
+                if let Some(max) = config.http2_max_concurrent_streams {
+                    builder.http2_max_concurrent_reset_streams(max);
+                }
+                if let Some(interval) = config.http2_keep_alive_interval {
+                    builder.http2_keep_alive_interval(interval);
+                }
+                if let Some(timeout) = config.http2_keep_alive_timeout {
+                    builder.http2_keep_alive_timeout(timeout);
+                }
+            }
+            HttpProtocol::Auto => {
+                // Auto-negotiate, use HTTP/2 if available
+                builder.http2_adaptive_window(config.http2_adaptive_window);
+
+                if let Some(size) = config.http2_initial_connection_window_size {
+                    builder.http2_initial_connection_window_size(size);
+                }
+                if let Some(size) = config.http2_initial_stream_window_size {
+                    builder.http2_initial_stream_window_size(size);
+                }
+                if let Some(interval) = config.http2_keep_alive_interval {
+                    builder.http2_keep_alive_interval(interval);
+                }
+                if let Some(timeout) = config.http2_keep_alive_timeout {
+                    builder.http2_keep_alive_timeout(timeout);
+                }
+            }
+        }
+
+        builder.build_http()
     }
 
     /// Create a builder for configuring the client
@@ -60,6 +213,35 @@ impl QuillClient {
         } else {
             Ok(data)
         }
+    }
+
+    /// Execute an operation with retry and circuit breaker logic
+    async fn with_resilience<F, Fut, T>(&self, operation: F) -> Result<T, QuillError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T, QuillError>>,
+    {
+        // Check circuit breaker first
+        if let Some(breaker) = &self.config.circuit_breaker {
+            breaker.allow_request().await?;
+        }
+
+        // Execute with retry if configured
+        let result = if let Some(policy) = &self.config.retry_policy {
+            crate::retry::retry_with_policy(policy, operation).await
+        } else {
+            operation().await
+        };
+
+        // Record result in circuit breaker
+        if let Some(breaker) = &self.config.circuit_breaker {
+            match &result {
+                Ok(_) => breaker.record_success().await,
+                Err(_) => breaker.record_failure().await,
+            }
+        }
+
+        result
     }
 
     /// Make a unary RPC call
@@ -466,6 +648,7 @@ pub struct ClientBuilder {
     profile_preference: Option<ProfilePreference>,
     enable_compression: bool,
     compression_level: i32,
+    config: ClientConfig,
 }
 
 impl ClientBuilder {
@@ -476,6 +659,7 @@ impl ClientBuilder {
             profile_preference: None,
             enable_compression: false,
             compression_level: 3,
+            config: ClientConfig::default(),
         }
     }
 
@@ -503,13 +687,98 @@ impl ClientBuilder {
         self
     }
 
+    /// Set HTTP protocol version
+    pub fn http_protocol(mut self, protocol: HttpProtocol) -> Self {
+        self.config.http_protocol = protocol;
+        self
+    }
+
+    /// Enable HTTP/2 only (Turbo profile)
+    pub fn http2_only(self) -> Self {
+        self.http_protocol(HttpProtocol::Http2)
+    }
+
+    /// Set connection pool idle timeout
+    pub fn pool_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.config.pool_idle_timeout = Some(timeout);
+        self
+    }
+
+    /// Set max idle connections per host
+    pub fn pool_max_idle_per_host(mut self, max: usize) -> Self {
+        self.config.pool_max_idle_per_host = max;
+        self
+    }
+
+    /// Enable HTTP/2 adaptive window
+    pub fn http2_adaptive_window(mut self, enable: bool) -> Self {
+        self.config.http2_adaptive_window = enable;
+        self
+    }
+
+    /// Set HTTP/2 initial connection window size
+    pub fn http2_initial_connection_window_size(mut self, size: u32) -> Self {
+        self.config.http2_initial_connection_window_size = Some(size);
+        self
+    }
+
+    /// Set HTTP/2 initial stream window size
+    pub fn http2_initial_stream_window_size(mut self, size: u32) -> Self {
+        self.config.http2_initial_stream_window_size = Some(size);
+        self
+    }
+
+    /// Set HTTP/2 max concurrent streams
+    pub fn http2_max_concurrent_streams(mut self, max: usize) -> Self {
+        self.config.http2_max_concurrent_streams = Some(max);
+        self
+    }
+
+    /// Set HTTP/2 keep alive interval
+    pub fn http2_keep_alive_interval(mut self, interval: Duration) -> Self {
+        self.config.http2_keep_alive_interval = Some(interval);
+        self
+    }
+
+    /// Set HTTP/2 keep alive timeout
+    pub fn http2_keep_alive_timeout(mut self, timeout: Duration) -> Self {
+        self.config.http2_keep_alive_timeout = Some(timeout);
+        self
+    }
+
+    /// Enable retries with the given policy
+    pub fn retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.config.retry_policy = Some(policy);
+        self
+    }
+
+    /// Enable retries with default policy
+    pub fn enable_retries(mut self) -> Self {
+        self.config.retry_policy = Some(RetryPolicy::default());
+        self
+    }
+
+    /// Enable circuit breaker with the given configuration
+    pub fn circuit_breaker(mut self, config: crate::retry::CircuitBreakerConfig) -> Self {
+        self.config.circuit_breaker = Some(Arc::new(CircuitBreaker::new(config)));
+        self
+    }
+
+    /// Enable circuit breaker with default configuration
+    pub fn enable_circuit_breaker(mut self) -> Self {
+        self.config.circuit_breaker = Some(Arc::new(CircuitBreaker::new(
+            crate::retry::CircuitBreakerConfig::default(),
+        )));
+        self
+    }
+
     /// Build the client
     pub fn build(self) -> Result<QuillClient, String> {
         let base_url = self
             .base_url
             .ok_or_else(|| "base_url is required".to_string())?;
 
-        let client = Client::builder(TokioExecutor::new()).build_http();
+        let client = QuillClient::build_client(&self.config);
 
         Ok(QuillClient {
             base_url,
@@ -519,6 +788,7 @@ impl ClientBuilder {
                 .unwrap_or_else(ProfilePreference::default_preference),
             enable_compression: self.enable_compression,
             compression_level: self.compression_level,
+            config: self.config,
         })
     }
 }

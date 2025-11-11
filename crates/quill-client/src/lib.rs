@@ -10,5 +10,6 @@ pub mod client;
 pub mod retry;
 pub mod streaming;
 
-pub use client::QuillClient;
+pub use client::{ClientConfig, HttpProtocol, QuillClient};
+pub use retry::{CircuitBreaker, CircuitBreakerConfig, CircuitState, RetryPolicy};
 pub use streaming::RpcRequest;

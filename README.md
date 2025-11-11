@@ -138,6 +138,7 @@ cargo test --package echo-example
 
 ## Features
 
+- **HTTP/2 Support**: Full HTTP/2 with multiplexing, connection pooling, and flow control
 - **Streaming**: Unary, server streaming, client streaming, and bidirectional streaming
 - **Code Generation**: Automatic client and server stub generation from `.proto` files
 - **Production Middleware**:
@@ -173,7 +174,7 @@ cargo test --package echo-example
 - [x] zstd compression
 - [x] OpenTelemetry tracing
 - [x] Examples for all patterns
-- [x] Integration tests (88 tests passing)
+- [x] Integration tests (112 tests passing)
 
 ### Phase 4: Code Generation
 - [x] Protoc plugin infrastructure
@@ -200,13 +201,25 @@ cargo test --package echo-example
 - [x] Performance documentation
 - [x] Performance budget verification
 
+### Phase 8: HTTP/2 Full Support
+- [x] HTTP/2 server with multiplexing
+- [x] HTTP/2 client with connection pooling
+- [x] Turbo profile (HTTP/2 end-to-end)
+- [x] Flow control and keep-alive
+- [x] HTTP/2 documentation
+
+### Phase 9: Retry Policies and Circuit Breakers
+- [x] Retry policy with exponential backoff and jitter
+- [x] Circuit breaker state machine
+- [x] Client builder integration
+- [x] Comprehensive test suite (14 tests)
+- [x] Resilience documentation
+
 ### Next Steps
 
-- [ ] Complete HTTP/2 full support
 - [ ] Add HTTP/3 Hyper profile
 - [ ] Production deployment guides
-- [ ] Retry policies and circuit breakers
-- [ ] Connection pooling
+- [ ] Enhanced observability (metrics dashboard, health checks)
 
 ## Documentation
 
@@ -217,6 +230,8 @@ cargo test --package echo-example
 - **[Tracing](https://your-org.github.io/quill/guide/tracing.md)** - OpenTelemetry integration
 - **[Middleware](docs/middleware.md)** - Authentication, rate limiting, logging, metrics
 - **[Performance](docs/performance.md)** - Benchmarks, optimization guide, performance budgets
+- **[HTTP/2](docs/http2.md)** - HTTP/2 configuration, Turbo profile, connection pooling
+- **[Resilience](docs/resilience.md)** - Retry policies and circuit breakers
 - **[CLI Tool](crates/quill-cli/README.md)** - CLI usage and examples
 
 ## Examples

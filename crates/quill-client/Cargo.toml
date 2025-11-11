@@ -26,6 +26,7 @@ tracing = { workspace = true }
 zstd = { workspace = true }
 opentelemetry = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+rand = "0.8"
 
 [dev-dependencies]
 tokio = { workspace = true }

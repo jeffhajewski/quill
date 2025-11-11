@@ -1352,6 +1352,7 @@ dependencies = [
  "opentelemetry",
  "quill-core",
  "quill-transport",
+ "rand",
  "serde_json",
  "thiserror",
  "tokio",
