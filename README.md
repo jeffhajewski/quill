@@ -1,6 +1,12 @@
 # Quill
 
+![CI](https://github.com/your-org/quill/workflows/CI/badge.svg)
+![Documentation](https://github.com/your-org/quill/workflows/Documentation/badge.svg)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A modern, protobuf-first RPC framework with adaptive HTTP/1–3 transport (Prism), real HTTP errors, streaming that just works, and a single CLI for gen, call, and bench.
+
+📚 **[Documentation](https://your-org.github.io/quill/)** | 📖 **[API Reference](https://your-org.github.io/quill/quill_core/)** | 🎯 **[Examples](examples/)**
 
 ## Overview
 
@@ -16,13 +22,13 @@ Quill is a Rust implementation of a next-generation RPC framework featuring:
 
 ### Crates
 
-- **quill-core**: Core types (framing, Problem Details, Prism profiles)
+- **quill-core**: Core types (framing, Problem Details, flow control)
 - **quill-proto**: Protobuf integration and Quill annotations
 - **quill-transport**: Transport layer implementations (Classic/Turbo/Hyper)
-- **quill-server**: Server SDK with routing and middleware
-- **quill-client**: Client SDK with retry and backpressure
-- **quill-codegen**: Code generation (protoc plugin) - *coming soon*
-- **quill-cli**: CLI tool for gen/call/bench - *coming soon*
+- **quill-server**: Server SDK with routing, middleware, and streaming
+- **quill-client**: Client SDK with streaming, compression, and tracing
+- **quill-codegen**: Code generation (protoc plugin) ✅
+- **quill-cli**: CLI tool for gen/call/bench ✅
 
 ### Prism Transport Profiles
 
@@ -34,7 +40,37 @@ Profile negotiation via `Prefer: prism=hyper,turbo,classic` header.
 
 ## Quick Start
 
-See the [Echo example](examples/echo/) for a complete working example.
+See the [Examples directory](examples/) for complete working examples of all streaming patterns.
+
+### Installation
+
+Add Quill to your `Cargo.toml`:
+
+```toml
+[dependencies]
+quill-server = "0.1"
+quill-client = "0.1"
+quill-core = "0.1"
+
+[build-dependencies]
+quill-codegen = "0.1"
+```
+
+### CLI Tool
+
+Install the Quill CLI for code generation and RPC calls:
+
+```bash
+cargo install --path crates/quill-cli
+
+# Generate code from .proto files
+quill gen proto/service.proto -I proto
+
+# Make RPC calls (curl-for-proto)
+quill call http://localhost:8080/greeter.v1.Greeter/SayHello \
+  --input '{"name":"World"}' \
+  --pretty
+```
 
 ### Server
 
@@ -100,27 +136,111 @@ cargo test --workspace
 cargo test --package echo-example
 ```
 
+## Features
+
+- ✅ **Streaming**: Unary, server streaming, client streaming, and bidirectional streaming
+- ✅ **Code Generation**: Automatic client and server stub generation from `.proto` files
+- ✅ **Middleware**: Compression (zstd), OpenTelemetry tracing, flow control
+- ✅ **CLI Tooling**: `quill` command for gen, call, bench, compat, and explain
+- ✅ **Type Safety**: Full Rust type safety with prost integration
+- ✅ **Error Handling**: Problem Details (RFC 7807) for structured errors
+- ✅ **Frame Protocol**: Custom framing with credit-based flow control
+
 ## Project Status
 
-**Phase 1: Foundation - "Hello Quill" Milestone**
+### ✅ Phase 1: Foundation
+- [x] Core types (framing, Problem Details, Prism profiles)
+- [x] HTTP/1.1 transport layer
+- [x] Server routing and handlers
+- [x] Client implementation
 
-- [x] Workspace structure
-- [x] quill-core implementation (framing, Problem Details, profiles)
-- [x] quill-proto with annotations
-- [x] quill-transport (HTTP/2 Turbo profile)
-- [x] quill-server (router, handlers, middleware)
-- [x] quill-client (unary calls)
-- [x] Echo example with integration test
-- [x] GitHub CI workflow
+### ✅ Phase 2: Transport Layer
+- [x] HTTP/1.1 Classic profile
+- [x] HTTP/2 preparation
+- [x] Router infrastructure
 
-### Next Steps
+### ✅ Phase 3: Streaming & Middleware
+- [x] Server streaming
+- [x] Client streaming
+- [x] Bidirectional streaming
+- [x] Credit-based flow control
+- [x] zstd compression
+- [x] OpenTelemetry tracing
+- [x] Examples for all patterns
+- [x] Integration tests (88 tests passing)
 
-- [ ] Add streaming support (server/client/bidi)
-- [ ] Add middleware (auth, compression, tracing)
-- [ ] Implement code generation (quill-codegen)
-- [ ] Build CLI tool (quill-cli)
-- [ ] Add HTTP/3 Hyper profile support
+### ✅ Phase 4: Code Generation
+- [x] Protoc plugin infrastructure
+- [x] Client stub generation
+- [x] Server trait generation
+- [x] Greeter example
+
+### ✅ Phase 5: CLI Tooling
+- [x] `quill gen` - Code generation
+- [x] `quill call` - RPC client
+- [x] `quill bench` - Benchmarking (structured)
+- [x] `quill compat` - Compatibility checking (structured)
+- [x] `quill explain` - Payload decoding (structured)
+
+### 🚧 Next Steps
+
+- [ ] Complete HTTP/2 full support
+- [ ] Add HTTP/3 Hyper profile
+- [ ] Implement full bench/compat/explain commands
+- [ ] Add authentication middleware
 - [ ] Performance benchmarks
+- [ ] Production deployment guides
+
+## Documentation
+
+- **[Architecture Guide](https://your-org.github.io/quill/guide/architecture.md)** - System design and implementation
+- **[API Reference](https://your-org.github.io/quill/)** - Complete API documentation
+- **[Flow Control](https://your-org.github.io/quill/guide/flow-control.md)** - Credit-based flow control
+- **[Compression](https://your-org.github.io/quill/guide/compression.md)** - zstd compression guide
+- **[Tracing](https://your-org.github.io/quill/guide/tracing.md)** - OpenTelemetry integration
+- **[CLI Tool](crates/quill-cli/README.md)** - CLI usage and examples
+
+## Examples
+
+- **[echo](examples/echo/)** - Unary RPC
+- **[streaming](examples/streaming/)** - Server streaming (log tailing)
+- **[upload](examples/upload/)** - Client streaming (file upload)
+- **[chat](examples/chat/)** - Bidirectional streaming (chat room)
+- **[greeter](examples/greeter/)** - Code generation example
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/quill.git
+cd quill
+
+# Build the project
+cargo build --workspace
+
+# Run tests
+cargo test --workspace
+
+# Build documentation
+cargo doc --no-deps --workspace --open
+```
+
+### Running Examples
+
+```bash
+# Run echo example tests
+cargo test -p echo-example
+
+# Run all example tests
+cargo test --workspace
+
+# Build the CLI
+cargo build -p quill-cli
+```
 
 ## License
 

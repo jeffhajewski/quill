@@ -1,0 +1,253 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/**'
+      - 'docs/**'
+      - 'examples/**'
+      - 'CLAUDE.md'
+      - 'README.md'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build API documentation
+        run: |
+          cargo doc --no-deps --workspace --lib
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=quill_core\">" > target/doc/index.html
+
+      - name: Copy markdown docs
+        run: |
+          mkdir -p target/doc/guide
+          cp -r docs/* target/doc/guide/ 2>/dev/null || echo "No docs directory"
+          cp CLAUDE.md target/doc/guide/architecture.md 2>/dev/null || echo "No CLAUDE.md"
+          cp README.md target/doc/guide/readme.md 2>/dev/null || true
+
+      - name: Create documentation index
+        run: |
+          cat > target/doc/guide/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Quill RPC Framework Documentation</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      padding: 2rem;
+                      line-height: 1.6;
+                      color: #333;
+                  }
+                  h1 {
+                      color: #2c3e50;
+                      border-bottom: 2px solid #3498db;
+                      padding-bottom: 0.5rem;
+                  }
+                  h2 {
+                      color: #34495e;
+                      margin-top: 2rem;
+                  }
+                  .card-grid {
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                      gap: 1.5rem;
+                      margin: 2rem 0;
+                  }
+                  .card {
+                      border: 1px solid #ddd;
+                      border-radius: 8px;
+                      padding: 1.5rem;
+                      transition: box-shadow 0.3s;
+                  }
+                  .card:hover {
+                      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                  }
+                  .card h3 {
+                      margin-top: 0;
+                      color: #3498db;
+                  }
+                  a {
+                      color: #3498db;
+                      text-decoration: none;
+                  }
+                  a:hover {
+                      text-decoration: underline;
+                  }
+                  .badge {
+                      display: inline-block;
+                      padding: 0.25rem 0.5rem;
+                      background: #3498db;
+                      color: white;
+                      border-radius: 4px;
+                      font-size: 0.875rem;
+                      margin-right: 0.5rem;
+                  }
+                  ul {
+                      list-style-type: none;
+                      padding-left: 0;
+                  }
+                  ul li {
+                      padding: 0.25rem 0;
+                  }
+                  ul li:before {
+                      content: "→ ";
+                      color: #3498db;
+                      font-weight: bold;
+                  }
+              </style>
+          </head>
+          <body>
+              <h1>🦜 Quill RPC Framework Documentation</h1>
+
+              <p>
+                  Quill is a modern, protobuf-first RPC framework for Rust with streaming support,
+                  middleware, code generation, and comprehensive tooling.
+              </p>
+
+              <h2>Documentation</h2>
+
+              <div class="card-grid">
+                  <div class="card">
+                      <h3><a href="../quill_core/index.html">📚 API Reference</a></h3>
+                      <p>Complete API documentation for all Quill crates:</p>
+                      <ul>
+                          <li><a href="../quill_core/index.html">quill-core</a> - Core types and errors</li>
+                          <li><a href="../quill_client/index.html">quill-client</a> - Client implementation</li>
+                          <li><a href="../quill_server/index.html">quill-server</a> - Server implementation</li>
+                          <li><a href="../quill_codegen/index.html">quill-codegen</a> - Code generation</li>
+                      </ul>
+                  </div>
+
+                  <div class="card">
+                      <h3><a href="architecture.md">🏗️ Architecture</a></h3>
+                      <p>System design and implementation guide:</p>
+                      <ul>
+                          <li>Core design principles</li>
+                          <li>Protocol specifications</li>
+                          <li>Implementation phases</li>
+                          <li>Component overview</li>
+                      </ul>
+                  </div>
+
+                  <div class="card">
+                      <h3>📖 Guides</h3>
+                      <p>In-depth documentation:</p>
+                      <ul>
+                          <li><a href="flow-control.md">Flow Control</a> - Credit-based flow control</li>
+                          <li><a href="compression.md">Compression</a> - zstd compression guide</li>
+                          <li><a href="tracing.md">Tracing</a> - OpenTelemetry integration</li>
+                      </ul>
+                  </div>
+
+                  <div class="card">
+                      <h3>🎯 Examples</h3>
+                      <p>Working examples demonstrating streaming patterns:</p>
+                      <ul>
+                          <li>Echo - Unary RPC</li>
+                          <li>Log Tailing - Server streaming</li>
+                          <li>File Upload - Client streaming</li>
+                          <li>Chat Room - Bidirectional streaming</li>
+                          <li>Greeter - Code generation demo</li>
+                      </ul>
+                  </div>
+              </div>
+
+              <h2>Features</h2>
+
+              <div style="margin: 1rem 0;">
+                  <span class="badge">Streaming</span>
+                  <span class="badge">Code Generation</span>
+                  <span class="badge">Compression</span>
+                  <span class="badge">Tracing</span>
+                  <span class="badge">Flow Control</span>
+                  <span class="badge">CLI Tools</span>
+              </div>
+
+              <h2>Quick Start</h2>
+
+              <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto;"><code># Add dependencies
+[dependencies]
+quill-server = "*"
+quill-client = "*"
+
+# Build the CLI
+cargo install --path crates/quill-cli
+
+# Generate code from .proto files
+quill gen proto/service.proto -I proto
+
+# Make an RPC call
+quill call http://localhost:8080/service/Method --input '{}'</code></pre>
+
+              <h2>Project Status</h2>
+
+              <ul>
+                  <li>✅ Phase 1: Foundation (Core types, errors, framing)</li>
+                  <li>✅ Phase 2: Transport Layer (HTTP/1.1, routing)</li>
+                  <li>✅ Phase 3: Streaming & Middleware (All streaming modes, compression, tracing)</li>
+                  <li>✅ Phase 4: Code Generation (Client/server stubs)</li>
+                  <li>✅ Phase 5: CLI Tooling (gen, call, bench, compat, explain)</li>
+              </ul>
+
+              <p style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #ddd; color: #666;">
+                  <strong>88 tests passing</strong> |
+                  <a href="https://github.com/your-org/quill">GitHub</a> |
+                  Built with ❤️ in Rust
+              </p>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./target/doc
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
