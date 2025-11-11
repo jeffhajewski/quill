@@ -17,5 +17,5 @@ pub mod streaming;
 pub use handler::RpcHandler;
 pub use request_stream::RequestFrameStream;
 pub use router::{parse_rpc_path, RpcRouter};
-pub use server::{QuillServer, ServerBuilder};
+pub use server::{HttpVersion, QuillServer, ServerBuilder, ServerConfig};
 pub use streaming::{FramedResponseStream, RpcResponse};
