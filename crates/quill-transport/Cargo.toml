@@ -20,6 +20,15 @@ http-body-util = { workspace = true }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+# HTTP/3 and QUIC
+quinn = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+
+[features]
+default = []
+http3 = ["quinn", "h3", "h3-quinn", "rustls"]
 
 [dev-dependencies]
 tokio = { workspace = true }
