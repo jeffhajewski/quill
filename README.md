@@ -174,7 +174,7 @@ cargo test --package echo-example
 - [x] zstd compression
 - [x] OpenTelemetry tracing
 - [x] Examples for all patterns
-- [x] Integration tests (132 tests passing)
+- [x] Integration tests (145 tests passing)
 
 ### Phase 4: Code Generation
 - [x] Protoc plugin infrastructure
@@ -247,13 +247,23 @@ cargo test --package echo-example
 - [x] Test suite (4 tests)
 - [x] Comprehensive HTTP/3 documentation
 
+### Phase 14: REST Gateway with OpenAPI
+- [x] Gateway architecture and URL template mapping
+- [x] HTTP method routing (GET/POST/PUT/PATCH/DELETE)
+- [x] RouteMapping with path parameter extraction
+- [x] OpenAPI 3.0 specification generation
+- [x] Problem Details error mapping (RFC 7807)
+- [x] Axum router integration
+- [x] Test suite (13 tests)
+- [x] Comprehensive REST gateway documentation
+
 ### Next Steps
 
 - [ ] Full HTTP/3 server implementation (quinn endpoint integration)
 - [ ] Full HTTP/3 client implementation (quinn connection handling)
 - [ ] WebTransport support for browser clients
 - [ ] gRPC bridge streaming support (server, client, bidirectional)
-- [ ] REST gateway with OpenAPI support
+- [ ] REST gateway middleware (authentication, CORS, rate limiting)
 
 ## Documentation
 
@@ -271,6 +281,7 @@ cargo test --package echo-example
 - **[Deployment Examples](deployment/examples/README.md)** - Ready-to-use Docker and K8s configs
 - **[Observability](docs/observability.md)** - Metrics, health checks, Grafana dashboards, alerting
 - **[gRPC Bridge](docs/grpc-bridge.md)** - gRPC interoperability, status mapping, metadata translation
+- **[REST Gateway](docs/rest-gateway.md)** - RESTful HTTP access, OpenAPI 3.0, URL mapping
 - **[CLI Tool](crates/quill-cli/README.md)** - CLI usage and examples
 
 ## Examples

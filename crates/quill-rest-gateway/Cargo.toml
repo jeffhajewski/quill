@@ -1,0 +1,26 @@
+[package]
+name = "quill-rest-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "REST gateway for Quill RPC with OpenAPI support"
+
+[dependencies]
+quill-core = { workspace = true }
+quill-client = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+http = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
