@@ -7,13 +7,16 @@
 //! - JSON request/response conversion
 //! - OpenAPI 3.0 specification generation
 //! - Problem Details error responses
+//! - Authentication, CORS, and rate limiting middleware
 
 pub mod error;
 pub mod mapping;
+pub mod middleware;
 pub mod openapi;
 pub mod router;
 
 pub use error::{GatewayError, GatewayResult};
 pub use mapping::{HttpMethodMapping, RouteMapping, UrlTemplate};
+pub use middleware::{AuthConfig, AuthMiddleware, CorsConfig, CorsMiddleware, RateLimitConfig, RateLimitMiddleware};
 pub use openapi::OpenApiSpec;
 pub use router::{RestGateway, RestGatewayBuilder};

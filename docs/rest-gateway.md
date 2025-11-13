@@ -469,47 +469,198 @@ let gateway = RestGatewayBuilder::new(client)
 
 Expose OpenAPI spec and integrate with Swagger UI for interactive documentation.
 
-## Security Considerations
+## Middleware
 
-### Authentication
+The REST gateway includes built-in middleware for authentication, CORS, and rate limiting.
 
-Add authentication middleware to the Axum router:
+### Authentication Middleware
+
+Protect your API with multiple authentication schemes:
+
+```rust
+use quill_rest_gateway::{AuthConfig, AuthMiddleware};
+use axum::middleware;
+use std::sync::Arc;
+
+// Bearer token authentication
+let auth_config = AuthConfig::new()
+    .bearer("your-secret-token-here");
+
+let app = gateway.router()
+    .layer(middleware::from_fn({
+        let config = Arc::new(auth_config);
+        move |req, next| AuthMiddleware::handle(config.clone(), req, next)
+    }));
+```
+
+#### Authentication Schemes
+
+**Bearer Token** (e.g., JWT):
+```rust
+let config = AuthConfig::new()
+    .bearer("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...");
+
+// Request: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**API Key**:
+```rust
+let config = AuthConfig::new()
+    .api_key("X-API-Key", "secret-key-123");
+
+// Request: X-API-Key: secret-key-123
+```
+
+**Basic Authentication**:
+```rust
+let config = AuthConfig::new()
+    .basic("username", "password");
+
+// Request: Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+```
+
+**Custom Validator**:
+```rust
+let config = AuthConfig::new()
+    .custom(|headers| {
+        // Custom validation logic
+        headers.get("x-custom-header").is_some()
+    });
+```
+
+**Multiple Schemes** (any valid):
+```rust
+let config = AuthConfig::new()
+    .bearer("token1")
+    .api_key("X-API-Key", "key1")
+    .basic("user", "pass");
+// Client can use any of the above schemes
+```
+
+### CORS Middleware
+
+Enable Cross-Origin Resource Sharing for browser clients:
+
+```rust
+use quill_rest_gateway::{CorsConfig, CorsMiddleware};
+use axum::middleware;
+use std::sync::Arc;
+
+// Permissive CORS (allow all origins)
+let cors_config = CorsConfig::permissive();
+
+// Or configure specific origins
+let cors_config = CorsConfig::new()
+    .allow_origins(vec![
+        "https://app.example.com".to_string(),
+        "https://admin.example.com".to_string(),
+    ])
+    .allow_methods(vec![Method::GET, Method::POST, Method::PUT, Method::DELETE])
+    .allow_credentials(true)
+    .max_age(86400); // 24 hours
+
+let app = gateway.router()
+    .layer(middleware::from_fn({
+        let config = Arc::new(cors_config);
+        move |req, next| CorsMiddleware::handle(config.clone(), req, next)
+    }));
+```
+
+**CORS Headers Set**:
+- `Access-Control-Allow-Origin`
+- `Access-Control-Allow-Methods`
+- `Access-Control-Allow-Headers`
+- `Access-Control-Allow-Credentials`
+- `Access-Control-Max-Age`
+
+### Rate Limiting Middleware
+
+Protect your API from abuse with token bucket rate limiting:
+
+```rust
+use quill_rest_gateway::{RateLimitConfig, RateLimitMiddleware};
+use axum::middleware;
+use std::sync::Arc;
+use std::time::Duration;
+
+// Rate limit by IP address (100 requests per minute)
+let rate_limit_config = RateLimitConfig::by_ip();
+
+// Or by API key (1000 requests per minute)
+let rate_limit_config = RateLimitConfig::by_api_key("x-api-key");
+
+// Or custom configuration
+let rate_limit_config = RateLimitConfig::new(100, Duration::from_secs(60))
+    .key_fn(|req| {
+        // Extract key from request (e.g., user ID from token)
+        Some("user-123".to_string())
+    });
+
+let middleware_instance = Arc::new(RateLimitMiddleware::new(rate_limit_config));
+
+let app = gateway.router()
+    .layer(middleware::from_fn({
+        let mw = middleware_instance.clone();
+        move |req, next| RateLimitMiddleware::handle(mw.clone(), req, next)
+    }));
+```
+
+**Rate Limit Headers** (returned on 429):
+- `Retry-After`: Seconds until reset
+- `X-RateLimit-Limit`: Max requests per window
+- `X-RateLimit-Remaining`: Remaining requests
+
+**Rate Limit Error Response** (429 Too Many Requests):
+```json
+{
+  "type": "urn:quill:rest-gateway:rate-limit-exceeded",
+  "title": "Rate Limit Exceeded",
+  "status": 429,
+  "detail": "Rate limit exceeded. Retry after 60 seconds"
+}
+```
+
+### Combining Middleware
+
+Stack multiple middleware layers:
 
 ```rust
 use axum::middleware;
+use std::sync::Arc;
+
+let auth_config = Arc::new(AuthConfig::new().bearer("token"));
+let cors_config = Arc::new(CorsConfig::permissive());
+let rate_limit = Arc::new(RateLimitMiddleware::new(RateLimitConfig::by_ip()));
 
 let app = gateway.router()
-    .layer(middleware::from_fn(auth_middleware));
+    // CORS first (handles preflight)
+    .layer(middleware::from_fn({
+        let config = cors_config.clone();
+        move |req, next| CorsMiddleware::handle(config.clone(), req, next)
+    }))
+    // Then rate limiting
+    .layer(middleware::from_fn({
+        let mw = rate_limit.clone();
+        move |req, next| RateLimitMiddleware::handle(mw.clone(), req, next)
+    }))
+    // Finally authentication
+    .layer(middleware::from_fn({
+        let config = auth_config.clone();
+        move |req, next| AuthMiddleware::handle(config.clone(), req, next)
+    }));
 ```
 
-### Rate Limiting
+## Security Considerations
 
-Use tower middleware for rate limiting:
+### Best Practices
 
-```rust
-use tower::ServiceBuilder;
-use tower_http::limit::RequestBodyLimitLayer;
-
-let app = gateway.router()
-    .layer(
-        ServiceBuilder::new()
-            .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB
-    );
-```
-
-### CORS
-
-Enable CORS for browser clients:
-
-```rust
-use tower_http::cors::{CorsLayer, Any};
-
-let cors = CorsLayer::new()
-    .allow_origin(Any)
-    .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
-
-let app = gateway.router().layer(cors);
-```
+1. **Always use HTTPS** in production
+2. **Enable authentication** for all non-public endpoints
+3. **Use rate limiting** to prevent abuse
+4. **Enable CORS** only for trusted origins
+5. **Validate API keys** server-side (never expose in client code)
+6. **Rotate secrets** regularly (tokens, API keys)
+7. **Monitor for suspicious activity** (failed auth attempts, rate limit hits)
 
 ## See Also
 

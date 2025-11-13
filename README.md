@@ -174,7 +174,7 @@ cargo test --package echo-example
 - [x] zstd compression
 - [x] OpenTelemetry tracing
 - [x] Examples for all patterns
-- [x] Integration tests (145 tests passing)
+- [x] Integration tests (158 tests passing)
 
 ### Phase 4: Code Generation
 - [x] Protoc plugin infrastructure
@@ -254,7 +254,10 @@ cargo test --package echo-example
 - [x] OpenAPI 3.0 specification generation
 - [x] Problem Details error mapping (RFC 7807)
 - [x] Axum router integration
-- [x] Test suite (13 tests)
+- [x] Authentication middleware (Bearer, API key, Basic, Custom)
+- [x] CORS middleware with origin control
+- [x] Rate limiting middleware (token bucket)
+- [x] Test suite (30 tests)
 - [x] Comprehensive REST gateway documentation
 
 ### Next Steps
@@ -263,7 +266,6 @@ cargo test --package echo-example
 - [ ] Full HTTP/3 client implementation (quinn connection handling)
 - [ ] WebTransport support for browser clients
 - [ ] gRPC bridge streaming support (server, client, bidirectional)
-- [ ] REST gateway middleware (authentication, CORS, rate limiting)
 
 ## Documentation
 
