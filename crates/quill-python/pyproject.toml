@@ -1,0 +1,49 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "quill"
+version = "0.1.0"
+description = "Python bindings for Quill RPC framework - tensor streaming and LLM inference"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["rpc", "tensor", "ml", "inference", "grpc"]
+dependencies = ["numpy>=1.20"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "numpy>=1.20",
+]
+
+[project.urls]
+Homepage = "https://github.com/quill/quill"
+Repository = "https://github.com/quill/quill"
+Documentation = "https://docs.quillprism.dev"
+
+[tool.maturin]
+# Module name (must match lib.name in Cargo.toml)
+module-name = "quill"
+# Build for Python extension
+features = ["pyo3/extension-module"]
+# Specify the binding type
+bindings = "pyo3"
+# Strip symbols in release builds
+strip = true

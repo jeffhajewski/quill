@@ -22,6 +22,7 @@ members = [
     "examples/grpc-bridge",
     "examples/llm-inference",
     "examples/webtransport",
+    "crates/quill-python",
 ]
 
 [workspace.package]
@@ -89,6 +90,10 @@ criterion = "0.5"
 half = "2.4"
 futures-core = "0.3"
 pin-project-lite = "0.2"
+
+# Python bindings
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
 
 # Internal workspace crates
 quill-core = { path = "crates/quill-core" }

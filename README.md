@@ -30,6 +30,7 @@ Quill is a Rust implementation of a next-generation RPC framework featuring:
 - **quill-codegen**: Code generation (protoc plugin)
 - **quill-cli**: CLI tool for gen/call/bench
 - **quill-tensor**: Tensor types and streaming for ML inference
+- **quill-python**: Python bindings via PyO3 for ML inference
 
 ### Prism Transport Profiles
 
@@ -306,7 +307,7 @@ cargo test --package echo-example
 
 ### Next Steps
 
-- [ ] Python bindings via PyO3 + rust-numpy (Phase 2 tensor support)
+- [x] Python bindings via PyO3 + rust-numpy (Phase 18)
 - [x] LLM inference example with token streaming
 - [x] gRPC bridge production examples and integration tests
 - [x] HTTP/3 examples (h3-echo, h3-streaming)
@@ -331,6 +332,7 @@ cargo test --package echo-example
 - **[Observability](docs/observability.md)** - Metrics, health checks, Grafana dashboards, alerting
 - **[gRPC Bridge](docs/grpc-bridge.md)** - gRPC interoperability, status mapping, metadata translation
 - **[REST Gateway](docs/rest-gateway.md)** - RESTful HTTP access, OpenAPI 3.0, URL mapping
+- **[Python Bindings](docs/python-bindings.md)** - PyO3-based Python package for ML inference
 - **[CLI Tool](crates/quill-cli/README.md)** - CLI usage and examples
 
 ## Examples

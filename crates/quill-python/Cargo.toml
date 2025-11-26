@@ -1,0 +1,33 @@
+[package]
+name = "quill-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Python bindings for Quill RPC framework via PyO3"
+
+[lib]
+name = "quill"
+# rlib for Rust workspace builds; maturin adds cdylib when building Python wheels
+# Note: Use `maturin build` to build the Python wheel
+crate-type = ["rlib"]
+
+[dependencies]
+quill-core = { workspace = true }
+quill-tensor = { workspace = true }
+quill-client = { workspace = true }
+pyo3 = { workspace = true }
+numpy = { workspace = true }
+bytes = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+half = { workspace = true }
+
+[dev-dependencies]
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+
+[features]
+default = []
+# Enable this feature to run tests (requires Python to be linked)
+python-tests = []
