@@ -32,10 +32,10 @@ pub mod tensor;
 pub mod token;
 
 pub use dtype::DType;
-pub use frame::{FrameType, TensorFrame, TensorFrameError};
+pub use frame::{FrameType, TensorFrame, TensorFrameError, TensorFrameParser};
 pub use stream::{TensorChunk, TensorReceiver, TensorSender, TensorStream};
 pub use tensor::{Tensor, TensorMeta, TensorView};
-pub use token::{Token, TokenBatch, TokenStream};
+pub use token::{Token, TokenBatch, TokenBatchBuilder, TokenStream};
 
 /// Re-export half crate types for convenience
 pub use half::{bf16, f16};

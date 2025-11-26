@@ -334,6 +334,96 @@ impl EchoService for EchoServiceBridge {
 
 ---
 
+### 8. LLM Inference (`examples/llm-inference`)
+
+**Pattern**: Token Streaming for ML Inference
+
+Demonstrates tensor and token streaming for LLM inference using Quill's tensor support.
+
+**Features**:
+- Token streaming for text generation
+- Tensor streaming for embeddings
+- Zero-copy frame protocol (TENSOR_META, TENSOR_PAYLOAD, TOKEN_BATCH)
+- Byte-based flow control with TensorCreditTracker
+- Mock LLM with vocabulary and tokenization
+
+**Use Case**:
+- LLM inference with streaming token generation
+- Embedding extraction and vector search
+- Agent-to-agent communication with context passing
+- Real-time text generation
+
+**Architecture**:
+
+```
+┌─────────────┐         ┌─────────────────────┐
+│   Client    │────────▶│   LLM Server        │
+│             │         │                     │
+│ GenerateReq │────────▶│ Token Generation    │
+│             │◀────────│ stream TokenBatch   │
+│             │         │                     │
+│ EmbedReq    │────────▶│ Embedding Extract   │
+│             │◀────────│ TENSOR_META+PAYLOAD │
+└─────────────┘         └─────────────────────┘
+```
+
+**Code Highlights**:
+
+```rust
+use quill_tensor::{
+    Token, TokenBatch, TokenBatchBuilder,
+    TensorFrame, TensorFrameParser, TensorSender, TensorReceiver,
+};
+
+// Generate tokens with streaming batches
+pub async fn generate(&self, request: &GenerateRequest) -> Vec<TokenBatch> {
+    let mut builder = TokenBatchBuilder::with_max_size(4);
+
+    for token_id in generated_sequence {
+        let token = Token::with_text(token_id, text, position)
+            .with_logprob(logprob);
+
+        if let Some(batch) = builder.push(token) {
+            // Batch is full, send it
+            send_batch(batch).await;
+        }
+    }
+
+    // Final batch with remaining tokens
+    let final_batch = builder.finish();
+}
+
+// Stream embeddings with zero-copy frames
+let sender = TensorSender::new();
+let frames = sender.encode_tensor(&embedding);
+// frames: [TENSOR_META, TENSOR_PAYLOAD..., END_STREAM]
+
+// Receive tensor with pre-allocation
+let mut receiver = TensorReceiver::new();
+receiver.feed(&response_data);
+let tensor = receiver.take_tensor().unwrap();
+```
+
+**Zero-Copy Frame Protocol**:
+
+```
+┌────────────┬────────────┬────────────┐
+│ Frame Type │  Reserved  │   Length   │
+│   (1 byte) │  (4 bytes) │  (4 bytes) │
+└────────────┴────────────┴────────────┘
+
+Frame Types:
+- TENSOR_META (0x10): Tensor metadata for pre-allocation
+- TENSOR_PAYLOAD (0x11): Raw tensor bytes (zero-copy)
+- TOKEN_BATCH (0x20): Batch of tokens with logprobs
+```
+
+**Requirements**:
+- `quill-tensor` crate
+- No external ML dependencies (mock LLM for demonstration)
+
+---
+
 ## Running the Examples
 
 ### Build All Examples

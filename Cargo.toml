@@ -19,6 +19,7 @@ members = [
     "examples/h3-echo",
     "examples/h3-streaming",
     "examples/grpc-bridge",
+    "examples/llm-inference",
 ]
 
 [workspace.package]
