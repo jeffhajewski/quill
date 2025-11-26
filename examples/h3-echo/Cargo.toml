@@ -1,0 +1,26 @@
+[package]
+name = "h3-echo-example"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "HTTP/3 echo example demonstrating Quill RPC over QUIC"
+
+[dependencies]
+quill-server = { workspace = true, features = ["http3"] }
+quill-client = { workspace = true, features = ["http3"] }
+quill-transport = { workspace = true, features = ["http3"] }
+quill-core = { workspace = true }
+tokio = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+bytes = { workspace = true }
+http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rustls = { workspace = true }
+
+[dev-dependencies]
+tokio-stream = "0.1"
+
+[build-dependencies]
+prost-build = { workspace = true }

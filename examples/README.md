@@ -104,7 +104,129 @@ pub async fn handle_upload(
 
 ---
 
-### 4. Chat Service (`examples/chat`)
+### 4. HTTP/3 Echo Service (`examples/h3-echo`)
+
+**Pattern**: Unary RPC over HTTP/3 (QUIC)
+
+An echo service demonstrating Quill RPC over HTTP/3 using the Hyper profile.
+
+**Features**:
+- HTTP/3 transport over QUIC
+- 0-RTT configuration for idempotent requests
+- TLS 1.3 with self-signed certificates
+- QuillH3Client and QuillH3Server setup
+
+**Use Case**:
+- Mobile applications (connection migration)
+- Browser clients (native HTTP/3 support)
+- Lossy networks (better packet loss handling)
+- Edge-to-client communication
+
+**Code Highlights**:
+
+```rust
+use quill_client::QuillH3Client;
+use quill_server::QuillH3Server;
+
+// HTTP/3 Server
+let server = QuillH3Server::builder(addr)
+    .enable_zero_rtt(true)
+    .enable_datagrams(false)
+    .max_concurrent_streams(100)
+    .register("echo.v1.EchoService/Echo", handle_echo)
+    .build();
+
+server.serve().await?;
+
+// HTTP/3 Client
+let client = QuillH3Client::builder(addr)
+    .enable_zero_rtt(true)
+    .enable_compression(true)
+    .build()?;
+
+let response = client.call("echo.v1.EchoService", "Echo", request).await?;
+```
+
+**Requirements**:
+- Enable the `http3` feature in `quill-client` and `quill-server`
+- Uses rustls with ring crypto provider for TLS
+
+---
+
+### 5. HTTP/3 Streaming Service (`examples/h3-streaming`)
+
+**Pattern**: Server Streaming over HTTP/3 (QUIC)
+
+A log-tailing service demonstrating server-side streaming over HTTP/3 using the Quill frame protocol.
+
+**Features**:
+- Server-side streaming over HTTP/3
+- Quill frame protocol encoding/decoding
+- Multiple DATA frames with END_STREAM signaling
+- Large stream support (100+ messages)
+
+**Use Case**:
+- Real-time log tailing over lossy networks
+- Live event feeds on mobile
+- Streaming metrics/telemetry
+- Large data transfers with frame-level control
+
+**Code Highlights**:
+
+```rust
+use quill_core::{Frame, FrameParser};
+
+/// Generate log entries as Quill frames
+pub fn generate_log_stream(max_entries: usize) -> Bytes {
+    let mut buf = Vec::new();
+
+    for i in 0..max_entries {
+        let entry = LogEntry {
+            timestamp: format!("2025-11-25T12:00:{:02}Z", i),
+            level: "INFO".to_string(),
+            message: format!("HTTP/3 log message #{}", i),
+        };
+
+        // Encode protobuf and wrap in Quill DATA frame
+        let mut entry_buf = Vec::new();
+        entry.encode(&mut entry_buf)?;
+        let frame = Frame::data(Bytes::from(entry_buf));
+        buf.extend_from_slice(&frame.encode());
+    }
+
+    // Add END_STREAM frame to signal completion
+    let end_frame = Frame::end_stream();
+    buf.extend_from_slice(&end_frame.encode());
+
+    Bytes::from(buf)
+}
+
+/// Parse streaming response
+pub fn parse_log_stream(data: Bytes) -> Result<Vec<LogEntry>, QuillError> {
+    let mut parser = FrameParser::new();
+    parser.feed(&data);
+
+    let mut entries = Vec::new();
+    loop {
+        match parser.parse_frame()? {
+            Some(frame) if frame.flags.is_end_stream() => break,
+            Some(frame) if frame.flags.is_data() => {
+                entries.push(LogEntry::decode(frame.payload)?);
+            }
+            _ => break,
+        }
+    }
+    Ok(entries)
+}
+```
+
+**Requirements**:
+- Enable the `http3` feature in `quill-transport`, `quill-client`, and `quill-server`
+- Uses rustls with ring crypto provider for TLS
+
+---
+
+### 6. Chat Service (`examples/chat`)
 
 **Pattern**: Bidirectional Streaming (stream of requests ↔ stream of responses)
 
@@ -166,6 +288,8 @@ cargo test -p echo-example
 cargo test -p streaming-example
 cargo test -p upload-example
 cargo test -p chat-example
+cargo test -p h3-echo-example
+cargo test -p h3-streaming-example
 ```
 
 ### Run Individual Examples
