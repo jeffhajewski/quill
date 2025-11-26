@@ -459,7 +459,7 @@ Before deploying to production:
 - [Middleware Guide](middleware.md) - Detailed middleware documentation
 - [Flow Control](flow-control.md) - Streaming backpressure
 - [Compression](compression.md) - Compression configuration
-- [Architecture](architecture.md) - System design
+- [Architecture](concepts/architecture.md) - System design
 
 ## Benchmark Reproducibility
 

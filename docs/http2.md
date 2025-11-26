@@ -407,7 +407,7 @@ for _ in 0..1000 {
 
 ## See Also
 
-- [Architecture Guide](architecture.md) - System design
+- [Architecture Guide](concepts/architecture.md) - System design
 - [Performance Guide](performance.md) - Performance benchmarks and tuning
 - [Middleware Guide](middleware.md) - Middleware configuration
 - [Examples](../examples/) - Working examples

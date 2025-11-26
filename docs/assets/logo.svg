@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="quill-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00bcd4"/>
+      <stop offset="100%" style="stop-color:#9c27b0"/>
+    </linearGradient>
+  </defs>
+  <!-- Feather/quill pen shape -->
+  <path d="M8 40L12 36L16 32L20 28L24 24L28 20L32 16L36 12L40 8"
+        stroke="url(#quill-gradient)"
+        stroke-width="3"
+        stroke-linecap="round"
+        fill="none"/>
+  <path d="M40 8C40 8 38 10 36 12C34 14 32 16 30 18C28 20 26 22 24 24C22 26 20 28 18 30C16 32 14 34 12 36C10 38 8 40 8 40"
+        stroke="url(#quill-gradient)"
+        stroke-width="2"
+        stroke-linecap="round"
+        fill="none"
+        opacity="0.5"/>
+  <!-- Ink drop -->
+  <circle cx="8" cy="40" r="3" fill="url(#quill-gradient)"/>
+</svg>

@@ -33,3 +33,6 @@ Thumbs.db
 # Context and temporary files
 context/
 *.zip
+
+# MkDocs build output
+site/

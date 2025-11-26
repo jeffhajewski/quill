@@ -491,4 +491,4 @@ async fn main() {
 - [Flow Control](flow-control.md) - Credit-based flow control
 - [Compression](compression.md) - zstd compression
 - [Tracing](tracing.md) - OpenTelemetry tracing
-- [Architecture](architecture.md) - System design
+- [Architecture](concepts/architecture.md) - System design

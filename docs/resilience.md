@@ -539,7 +539,7 @@ let policy = RetryPolicy::new()
 
 ## See Also
 
-- [Client Documentation](../crates/quill-client/README.md)
+- [Client Guide](guides/client.md)
 - [Performance Guide](performance.md)
 - [Middleware Guide](middleware.md)
 
