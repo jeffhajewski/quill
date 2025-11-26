@@ -29,6 +29,7 @@ Quill is a Rust implementation of a next-generation RPC framework featuring:
 - **quill-client**: Client SDK with streaming, compression, and tracing
 - **quill-codegen**: Code generation (protoc plugin)
 - **quill-cli**: CLI tool for gen/call/bench
+- **quill-tensor**: Tensor types and streaming for ML inference
 
 ### Prism Transport Profiles
 
@@ -270,12 +271,26 @@ cargo test --package echo-example
 - [x] Test suite (30 tests)
 - [x] Comprehensive REST gateway documentation
 
+### Phase 15: Tensor Support for ML Inference
+- [x] Proto definitions (tensor.proto, inference.proto, agent.proto)
+- [x] Zero-copy frame protocol with 9-byte header (TensorFrame, FrameType enum)
+- [x] quill-tensor crate with DType, Tensor, TensorMeta types
+- [x] Tensor streaming with TensorStream, TensorSender, TensorReceiver
+- [x] Token streaming for LLM inference (Token, TokenBatch, TokenStream)
+- [x] Agent-to-agent communication protocol (AgentMessage, AgentResponse)
+- [x] Byte-based flow control (TensorCreditTracker with high/low water marks)
+- [x] Half-precision float support (f16, bf16 via half crate)
+- [x] Tensor chunking and reassembly for large tensors
+- [x] Test suite (28 quill-tensor tests, 6 new flow control tests)
+
 ### Next Steps
 
 - [ ] WebTransport support for browser clients
 - [ ] HTTP/3 datagrams for unreliable messaging
-- [ ] gRPC bridge production examples and integration tests
-- [ ] Full end-to-end HTTP/3 integration tests
+- [ ] Python bindings via PyO3 + rust-numpy (Phase 2 tensor support)
+- [ ] LLM inference example with token streaming
+- [x] gRPC bridge production examples and integration tests
+- [x] HTTP/3 examples (h3-echo, h3-streaming)
 
 ## Documentation
 

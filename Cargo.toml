@@ -10,6 +10,7 @@ members = [
     "crates/quill-cli",
     "crates/quill-grpc-bridge",
     "crates/quill-rest-gateway",
+    "crates/quill-tensor",
     "examples/echo",
     "examples/streaming",
     "examples/chat",
@@ -17,6 +18,7 @@ members = [
     "examples/greeter",
     "examples/h3-echo",
     "examples/h3-streaming",
+    "examples/grpc-bridge",
 ]
 
 [workspace.package]
@@ -78,6 +80,11 @@ zstd = "0.13"
 # Testing
 criterion = "0.5"
 
+# ML/Tensor support
+half = "2.4"
+futures-core = "0.3"
+pin-project-lite = "0.2"
+
 # Internal workspace crates
 quill-core = { path = "crates/quill-core" }
 quill-proto = { path = "crates/quill-proto" }
@@ -85,6 +92,7 @@ quill-transport = { path = "crates/quill-transport" }
 quill-server = { path = "crates/quill-server" }
 quill-client = { path = "crates/quill-client" }
 quill-codegen = { path = "crates/quill-codegen" }
+quill-tensor = { path = "crates/quill-tensor" }
 
 [profile.release]
 lto = true

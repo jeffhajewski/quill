@@ -1,0 +1,120 @@
+// Quill inference types for LLM token streaming
+syntax = "proto3";
+
+package quill.inference.v1;
+
+import "quill/tensor.proto";
+
+// A single token in a sequence
+message Token {
+  // Token ID from the vocabulary
+  uint32 id = 1;
+
+  // Optional: decoded text representation
+  optional string text = 2;
+
+  // Optional: log probability of this token
+  optional float logprob = 3;
+
+  // Position in the sequence (0-indexed)
+  uint32 position = 4;
+
+  // Whether this is a special token (BOS, EOS, PAD, etc.)
+  bool is_special = 5;
+}
+
+// Batch of tokens for efficient streaming
+message TokenBatch {
+  // Tokens in this batch
+  repeated Token tokens = 1;
+
+  // Optional: sequence ID for multi-sequence generation
+  optional uint32 sequence_id = 2;
+
+  // Whether this batch is the final one in the stream
+  bool is_final = 3;
+
+  // Optional: attention mask for this batch
+  repeated bool attention_mask = 4;
+}
+
+// Request for text generation
+message GenerateRequest {
+  // Input token IDs
+  repeated uint32 input_ids = 1;
+
+  // Maximum number of new tokens to generate
+  optional uint32 max_new_tokens = 2;
+
+  // Sampling temperature (0.0 = greedy, higher = more random)
+  optional float temperature = 3;
+
+  // Top-p (nucleus) sampling threshold
+  optional float top_p = 4;
+
+  // Top-k sampling (number of highest probability tokens to consider)
+  optional uint32 top_k = 5;
+
+  // Whether to stream embeddings along with tokens
+  bool stream_embeddings = 6;
+
+  // Optional: stop sequences (token IDs that end generation)
+  repeated uint32 stop_token_ids = 7;
+
+  // Optional: repetition penalty (1.0 = no penalty)
+  optional float repetition_penalty = 8;
+}
+
+// Response for text generation (streaming)
+message GenerateResponse {
+  // Generated tokens in this response
+  TokenBatch tokens = 1;
+
+  // Optional: hidden state embedding for this position
+  optional quill.tensor.v1.Tensor embedding = 2;
+
+  // Total tokens generated so far
+  uint32 total_generated = 3;
+
+  // Whether generation is complete
+  bool is_complete = 4;
+
+  // Optional: reason for stopping ("length", "stop_token", "eos")
+  optional string finish_reason = 5;
+}
+
+// Request for embedding extraction
+message EmbedRequest {
+  // Input token IDs
+  repeated uint32 input_ids = 1;
+
+  // Which layer(s) to extract embeddings from (-1 = last layer)
+  repeated int32 layers = 2;
+
+  // Whether to pool over sequence dimension
+  bool pool = 3;
+
+  // Pooling strategy if pool=true ("mean", "max", "cls")
+  optional string pool_strategy = 4;
+}
+
+// Response for embedding extraction
+message EmbedResponse {
+  // Extracted embedding(s)
+  repeated quill.tensor.v1.Tensor embeddings = 1;
+
+  // Shape information for each embedding
+  repeated quill.tensor.v1.TensorMeta metadata = 2;
+}
+
+// Inference service for LLM operations
+service InferenceService {
+  // Generate tokens from a prompt (streaming response)
+  rpc Generate(GenerateRequest) returns (stream GenerateResponse);
+
+  // Extract embeddings from input
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+
+  // Stream tokens bidirectionally (chat completion)
+  rpc Chat(stream GenerateRequest) returns (stream GenerateResponse);
+}

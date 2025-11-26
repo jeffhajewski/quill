@@ -1,0 +1,28 @@
+[package]
+name = "quill-tensor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Tensor types and streaming for ML inference in the Quill RPC framework"
+
+[features]
+default = []
+# Enable full tensor operations (requires more dependencies)
+full = []
+
+[dependencies]
+bytes = { workspace = true }
+thiserror = { workspace = true }
+half = { workspace = true }
+quill-core = { workspace = true }
+
+# Async streaming support
+futures-core = { workspace = true }
+pin-project-lite = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+futures = "0.3"

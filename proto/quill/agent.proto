@@ -1,0 +1,216 @@
+// Quill agent types for agent-to-agent communication
+syntax = "proto3";
+
+package quill.agent.v1;
+
+import "quill/tensor.proto";
+
+// Context passed between agents
+message AgentContext {
+  // Unique session identifier
+  string session_id = 1;
+
+  // Optional: context embedding for semantic continuity
+  optional quill.tensor.v1.Tensor context_embedding = 2;
+
+  // Arbitrary key-value metadata
+  map<string, string> metadata = 3;
+
+  // Optional: parent agent that spawned this agent
+  optional string parent_agent_id = 4;
+
+  // Depth in the agent hierarchy (0 = root)
+  int32 depth = 5;
+
+  // Optional: trace ID for distributed tracing
+  optional string trace_id = 6;
+
+  // Optional: conversation history token IDs (for context window)
+  repeated uint32 history_token_ids = 7;
+
+  // Optional: attention mask for history tokens
+  repeated bool history_attention_mask = 8;
+}
+
+// Tool definition for agent capabilities
+message ToolDefinition {
+  // Unique tool name
+  string name = 1;
+
+  // Human-readable description
+  string description = 2;
+
+  // JSON schema for tool parameters (as string)
+  string parameters_schema = 3;
+
+  // Whether tool execution is required
+  bool required = 4;
+}
+
+// Tool call made by an agent
+message ToolCall {
+  // Tool name to invoke
+  string name = 1;
+
+  // Tool arguments as JSON string
+  string arguments = 2;
+
+  // Unique ID for this tool call
+  string call_id = 3;
+}
+
+// Result of a tool execution
+message ToolResult {
+  // ID of the tool call this is a result for
+  string call_id = 1;
+
+  // Result content (typically JSON or text)
+  string content = 2;
+
+  // Whether the tool execution was successful
+  bool success = 3;
+
+  // Optional: error message if not successful
+  optional string error = 4;
+}
+
+// Message sent between agents
+message AgentMessage {
+  // Agent sending this message
+  string from_agent = 1;
+
+  // Target agent (or "broadcast" for all)
+  string to_agent = 2;
+
+  // Context for this conversation
+  AgentContext context = 3;
+
+  // The query or instruction
+  string query = 4;
+
+  // Optional: tools available to the receiving agent
+  repeated ToolDefinition tools = 5;
+
+  // Optional: results from previous tool calls
+  repeated ToolResult tool_results = 6;
+
+  // Message type for routing
+  MessageType message_type = 7;
+
+  // Optional: priority level (0-100, higher = more urgent)
+  optional int32 priority = 8;
+}
+
+// Type of agent message
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  // Initial query to an agent
+  QUERY = 1;
+  // Response to a query
+  RESPONSE = 2;
+  // Request for tool execution
+  TOOL_REQUEST = 3;
+  // Result of tool execution
+  TOOL_RESPONSE = 4;
+  // Delegation to sub-agent
+  DELEGATE = 5;
+  // Status update (heartbeat, progress)
+  STATUS = 6;
+  // Error notification
+  ERROR = 7;
+}
+
+// Response from an agent
+message AgentResponse {
+  // Result text or content
+  string result = 1;
+
+  // Optional: updated context for next turn
+  optional AgentContext updated_context = 2;
+
+  // Whether this response is final (no more streaming)
+  bool is_final = 3;
+
+  // Optional: tool calls the agent wants to make
+  repeated ToolCall tool_calls = 4;
+
+  // Optional: embedding of this response
+  optional quill.tensor.v1.Tensor response_embedding = 5;
+
+  // Response type
+  ResponseType response_type = 6;
+
+  // Optional: confidence score (0.0 - 1.0)
+  optional float confidence = 7;
+}
+
+// Type of agent response
+enum ResponseType {
+  RESPONSE_TYPE_UNSPECIFIED = 0;
+  // Direct answer to query
+  ANSWER = 1;
+  // Partial/streaming response
+  PARTIAL = 2;
+  // Requesting tool execution
+  TOOL_USE = 3;
+  // Delegating to another agent
+  DELEGATION = 4;
+  // Clarification needed
+  CLARIFICATION = 5;
+  // Unable to complete request
+  UNABLE = 6;
+}
+
+// Agent registration for discovery
+message AgentRegistration {
+  // Unique agent identifier
+  string agent_id = 1;
+
+  // Human-readable name
+  string name = 2;
+
+  // Description of agent capabilities
+  string description = 3;
+
+  // Tools this agent provides
+  repeated ToolDefinition tools = 4;
+
+  // Supported message types
+  repeated MessageType supported_messages = 5;
+
+  // Optional: maximum depth this agent can operate at
+  optional int32 max_depth = 6;
+}
+
+// Service for agent-to-agent communication
+service AgentService {
+  // Execute a single query (unary request, streaming response)
+  rpc Execute(AgentMessage) returns (stream AgentResponse);
+
+  // Chat with an agent (bidirectional streaming)
+  rpc Chat(stream AgentMessage) returns (stream AgentResponse);
+
+  // Register an agent for discovery
+  rpc Register(AgentRegistration) returns (AgentRegistration);
+
+  // List available agents
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+
+  // Delegate a task to a sub-agent
+  rpc Delegate(AgentMessage) returns (stream AgentResponse);
+}
+
+// Request to list available agents
+message ListAgentsRequest {
+  // Optional: filter by capability/tool
+  optional string tool_filter = 1;
+
+  // Optional: maximum number of agents to return
+  optional int32 limit = 2;
+}
+
+// Response with list of available agents
+message ListAgentsResponse {
+  // Available agents
+  repeated AgentRegistration agents = 1;
+}

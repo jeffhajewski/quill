@@ -15,6 +15,6 @@ pub mod status;
 pub mod metadata;
 pub mod bridge;
 
-pub use status::{grpc_to_http_status, grpc_to_problem_details};
+pub use status::{grpc_to_http_status, grpc_to_problem_details, http_to_grpc_status};
 pub use metadata::{grpc_metadata_to_http_headers, http_headers_to_grpc_metadata};
 pub use bridge::{GrpcBridge, GrpcBridgeConfig};

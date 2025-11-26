@@ -1,0 +1,72 @@
+// Quill tensor types for ML inference and agent communication
+syntax = "proto3";
+
+package quill.tensor.v1;
+
+// Data type for tensor elements
+enum DType {
+  DTYPE_UNSPECIFIED = 0;
+  FLOAT32 = 1;
+  FLOAT16 = 2;
+  BFLOAT16 = 3;
+  FLOAT64 = 4;
+  INT8 = 5;
+  INT32 = 6;
+  INT64 = 7;
+  UINT8 = 8;
+  BOOL = 9;
+}
+
+// Device where tensor is located
+enum Device {
+  DEVICE_CPU = 0;
+  DEVICE_CUDA = 1;
+}
+
+// Tensor metadata - sent as TENSOR_META frame for pre-allocation
+message TensorMeta {
+  // Shape of the tensor (e.g., [1024, 1024] for a 2D tensor)
+  repeated int64 shape = 1;
+
+  // Data type of tensor elements
+  DType dtype = 2;
+
+  // Device where tensor is located
+  Device device = 3;
+
+  // Optional: strides for non-contiguous tensors
+  repeated int64 strides = 4;
+
+  // Optional: human-readable name for debugging
+  optional string name = 5;
+
+  // Optional: whether tensor requires gradient computation
+  optional bool requires_grad = 6;
+
+  // Total bytes in the TENSOR_PAYLOAD frame(s)
+  uint64 byte_size = 7;
+}
+
+// Full tensor in a single PROTO_MSG frame (for backward compatibility)
+message Tensor {
+  // Tensor metadata
+  TensorMeta meta = 1;
+
+  // Raw tensor data in row-major (C) order
+  bytes data = 2;
+}
+
+// Chunk of tensor data for streaming large tensors
+message TensorChunk {
+  // Sequence number for reassembly (0-indexed)
+  uint32 sequence = 1;
+
+  // Total number of chunks
+  uint32 total_chunks = 2;
+
+  // Raw chunk data
+  bytes data = 3;
+
+  // Whether this is the final chunk
+  bool is_final = 4;
+}
