@@ -1006,6 +1006,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "h3-datagram-example"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "quill-transport",
+ "rustls",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "h3-echo-example"
 version = "0.1.0"
 dependencies = [

@@ -159,34 +159,118 @@ Use cases:
 - Video/audio packets with FEC
 - Telemetry and metrics
 
-### Sending Datagrams
+### Datagram Type
+
+The `Datagram` type represents a single datagram message:
 
 ```rust
-use quill_transport::H3Client;
+use quill_transport::Datagram;
+use bytes::Bytes;
+
+// Create a simple datagram
+let dg = Datagram::new(Bytes::from("sensor:temp=72.5"));
+
+// Create a datagram with flow ID for routing
+let dg = Datagram::with_flow_id(Bytes::from("data"), 42);
+
+// Access payload and metadata
+println!("Size: {} bytes", dg.size());
+println!("Flow ID: {:?}", dg.flow_id);
+```
+
+### Client-Side Datagrams
+
+#### Persistent Connection with Datagrams
+
+Use `connect()` to establish a persistent connection for bidirectional datagram exchange:
+
+```rust
+use quill_transport::{H3ClientBuilder, Datagram};
 use bytes::Bytes;
 
 let client = H3ClientBuilder::new()
     .enable_datagrams(true)
     .build()?;
 
-// Send unreliable datagram
-let datagram_data = Bytes::from("sensor:temp=72.5");
-client.send_datagram(datagram_data).await?;
+// Establish persistent connection
+let mut conn = client.connect(addr, "example.com").await?;
+
+// Send datagrams
+conn.send_datagram(Datagram::new(Bytes::from("hello")))?;
+conn.send_datagram(Datagram::with_flow_id(Bytes::from("data"), 1))?;
+
+// Get the datagram sender for concurrent sending
+let sender = conn.datagram_sender();
+sender.send_bytes(Bytes::from("raw bytes"))?;
+
+// Receive datagrams
+if let Some(mut rx) = conn.take_datagram_receiver() {
+    while let Some(dg) = rx.recv().await {
+        println!("Received: {:?}", dg.payload);
+    }
+}
 ```
 
-### Receiving Datagrams
+#### One-Shot Datagram Send
+
+For sending a single datagram without maintaining a connection:
 
 ```rust
-use quill_transport::H3Server;
+// Send a datagram without keeping the connection open
+client.send_datagram_oneshot(addr, Datagram::new(Bytes::from("fire-and-forget"))).await?;
+```
 
-let server = H3ServerBuilder::new(bind_addr)
+### Server-Side Datagrams
+
+#### Datagram Handler
+
+Use `FnDatagramHandler` or implement `DatagramHandler` to process incoming datagrams:
+
+```rust
+use quill_transport::{H3ServerBuilder, FnDatagramHandler, Datagram, DatagramSender};
+
+// Create a datagram handler
+let handler = FnDatagramHandler::new(|dg: Datagram, sender: DatagramSender| {
+    println!("Received datagram: {} bytes", dg.size());
+
+    // Echo the datagram back
+    if let Err(e) = sender.send(dg) {
+        eprintln!("Failed to send response: {}", e);
+    }
+});
+
+let server = H3ServerBuilder::new(addr)
     .enable_datagrams(true)
     .build()?;
 
-// Receive datagrams in handler
-while let Some(datagram) = server.recv_datagram().await? {
-    // Process unreliable datagram
-    process_sensor_data(datagram);
+// Start server with both HTTP/3 request handling and datagram handling
+server.serve_with_datagrams(my_service, handler).await?;
+```
+
+#### Custom Datagram Handler
+
+Implement the `DatagramHandler` trait for more complex logic:
+
+```rust
+use quill_transport::{DatagramHandler, Datagram, DatagramSender};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[derive(Clone)]
+struct MetricsHandler {
+    metrics: Arc<Mutex<Vec<f64>>>,
+}
+
+impl DatagramHandler for MetricsHandler {
+    fn handle(&self, datagram: Datagram, _sender: DatagramSender) {
+        // Parse sensor data from payload
+        if let Ok(value) = parse_sensor_data(&datagram.payload) {
+            let metrics = self.metrics.clone();
+            tokio::spawn(async move {
+                metrics.lock().await.push(value);
+            });
+        }
+    }
 }
 ```
 
@@ -199,12 +283,35 @@ let config = HyperConfig {
 };
 
 // Datagrams larger than max_datagram_size will be rejected
+// Check the sender's max size before sending
+let sender = conn.datagram_sender();
+println!("Max datagram size: {} bytes", sender.max_size());
+```
+
+### Flow IDs
+
+Flow IDs allow multiplexing multiple logical streams over datagrams:
+
+```rust
+// Encode flow ID in the datagram
+let dg = Datagram::with_flow_id(Bytes::from("stream-1-data"), 1);
+let encoded = dg.encode(); // [varint flow_id][payload]
+
+// Decode flow ID from received datagram
+let decoded = Datagram::decode(received_bytes, true)?;
+match decoded.flow_id {
+    Some(1) => handle_stream_1(decoded.payload),
+    Some(2) => handle_stream_2(decoded.payload),
+    _ => handle_default(decoded.payload),
+}
 ```
 
 **Recommendations**:
 - Keep datagrams < 1200 bytes to avoid fragmentation
 - Use datagrams for data that can tolerate loss
 - Consider Forward Error Correction (FEC) for important datagram data
+- Use flow IDs to multiplex different data types over datagrams
+- Handle datagram loss gracefully in application logic
 
 ## Connection Migration
 

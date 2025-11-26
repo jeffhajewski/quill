@@ -286,9 +286,9 @@ cargo test --package echo-example
 ### Next Steps
 
 - [ ] WebTransport support for browser clients
-- [ ] HTTP/3 datagrams for unreliable messaging
+- [x] HTTP/3 datagrams for unreliable messaging
 - [ ] Python bindings via PyO3 + rust-numpy (Phase 2 tensor support)
-- [ ] LLM inference example with token streaming
+- [x] LLM inference example with token streaming
 - [x] gRPC bridge production examples and integration tests
 - [x] HTTP/3 examples (h3-echo, h3-streaming)
 

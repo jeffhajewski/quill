@@ -16,6 +16,7 @@ pub use turbo::TurboTransport;
 
 #[cfg(feature = "http3")]
 pub use hyper::{
-    BoxFuture, H3Client, H3ClientBuilder, H3Server, H3ServerBuilder, H3Service, HyperConfig,
-    HyperError, HyperTransport,
+    BoxFuture, Datagram, DatagramHandler, DatagramReceiver, DatagramSender, FnDatagramHandler,
+    H3Client, H3ClientBuilder, H3Connection, H3Server, H3ServerBuilder, H3Service, HyperConfig,
+    HyperError, HyperTransport, ServerConnection,
 };

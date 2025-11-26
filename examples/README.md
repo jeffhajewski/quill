@@ -226,7 +226,73 @@ pub fn parse_log_stream(data: Bytes) -> Result<Vec<LogEntry>, QuillError> {
 
 ---
 
-### 6. Chat Service (`examples/chat`)
+### 6. HTTP/3 Datagram Service (`examples/h3-datagram`)
+
+**Pattern**: Unreliable Messaging over HTTP/3 Datagrams
+
+A sensor data service demonstrating HTTP/3 datagrams for low-latency, unreliable messaging.
+
+**Features**:
+- HTTP/3 datagram sending and receiving
+- Flow IDs for multiplexing different data streams
+- Server-side datagram echo handler
+- Sensor data encoding/decoding
+- Statistics tracking
+
+**Use Case**:
+- Real-time sensor data
+- Gaming state updates
+- Video/audio packets
+- Telemetry and metrics
+
+**Code Highlights**:
+
+```rust
+use quill_transport::{Datagram, DatagramSender, FnDatagramHandler, H3ClientBuilder};
+use bytes::Bytes;
+
+// Create datagram with flow ID for routing
+let reading = SensorReading::new(SensorType::Temperature, 72.5, timestamp);
+let datagram = Datagram::with_flow_id(reading.encode(), FLOW_TEMPERATURE);
+
+// Client: establish persistent connection
+let client = H3ClientBuilder::new()
+    .enable_datagrams(true)
+    .build()?;
+
+let mut conn = client.connect(addr, "localhost").await?;
+
+// Send datagrams
+conn.send_datagram(datagram)?;
+
+// Receive datagrams
+if let Some(mut rx) = conn.take_datagram_receiver() {
+    while let Some(dg) = rx.recv().await {
+        println!("Received: {:?}", dg.payload);
+    }
+}
+
+// Server: handle incoming datagrams with echo
+let handler = FnDatagramHandler::new(|dg, sender| {
+    // Echo the datagram back
+    let _ = sender.send(dg);
+});
+
+server.serve_with_datagrams(service, handler).await?;
+```
+
+**Datagram Size Recommendations**:
+- Keep datagrams < 1200 bytes to avoid fragmentation
+- Use flow IDs for multiplexing different data types
+- Handle datagram loss gracefully in application logic
+
+**Requirements**:
+- Enable the `http3` feature in `quill-transport`
+- Uses rustls with ring crypto provider for TLS
+
+---
+
+### 7. Chat Service (`examples/chat`)
 
 **Pattern**: Bidirectional Streaming (stream of requests ↔ stream of responses)
 
@@ -273,7 +339,7 @@ pub async fn handle_chat(
 
 ---
 
-### 7. gRPC Bridge (`examples/grpc-bridge`)
+### 8. gRPC Bridge (`examples/grpc-bridge`)
 
 **Pattern**: Protocol Bridge (gRPC → Quill)
 
@@ -334,7 +400,7 @@ impl EchoService for EchoServiceBridge {
 
 ---
 
-### 8. LLM Inference (`examples/llm-inference`)
+### 9. LLM Inference (`examples/llm-inference`)
 
 **Pattern**: Token Streaming for ML Inference
 
@@ -441,6 +507,7 @@ cargo test -p upload-example
 cargo test -p chat-example
 cargo test -p h3-echo-example
 cargo test -p h3-streaming-example
+cargo test -p h3-datagram-example
 cargo test -p grpc-bridge-example
 ```
 

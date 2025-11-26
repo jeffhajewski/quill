@@ -18,6 +18,7 @@ members = [
     "examples/greeter",
     "examples/h3-echo",
     "examples/h3-streaming",
+    "examples/h3-datagram",
     "examples/grpc-bridge",
     "examples/llm-inference",
 ]

@@ -1,4 +1,10 @@
 //! Hyper profile (HTTP/3 over QUIC) transport implementation
+//!
+//! This module provides HTTP/3 transport over QUIC with support for:
+//! - Multiplexed streams
+//! - 0-RTT connection resumption
+//! - HTTP/3 datagrams for unreliable messaging
+//! - Connection migration
 
 #[cfg(feature = "http3")]
 use bytes::Bytes;
@@ -19,7 +25,9 @@ use std::time::Duration;
 #[cfg(feature = "http3")]
 use thiserror::Error;
 #[cfg(feature = "http3")]
-use tracing::{debug, error, info};
+use tokio::sync::mpsc;
+#[cfg(feature = "http3")]
+use tracing::{debug, error, info, warn};
 #[cfg(feature = "http3")]
 use h3::quic;
 
@@ -62,6 +70,281 @@ impl Default for HyperConfig {
             keep_alive_interval_ms: 30000,
             idle_timeout_ms: 60000,
         }
+    }
+}
+
+// ============================================================================
+// Datagram Types
+// ============================================================================
+
+/// A datagram message for unreliable, unordered delivery
+///
+/// HTTP/3 datagrams provide low-latency messaging without delivery guarantees.
+/// Use cases include:
+/// - Real-time sensor data
+/// - Gaming state updates
+/// - Video/audio packets
+/// - Telemetry and metrics
+#[cfg(feature = "http3")]
+#[derive(Debug, Clone)]
+pub struct Datagram {
+    /// The datagram payload
+    pub payload: Bytes,
+    /// Optional metadata/identifier for routing
+    pub flow_id: Option<u64>,
+}
+
+#[cfg(feature = "http3")]
+impl Datagram {
+    /// Create a new datagram with payload
+    pub fn new(payload: Bytes) -> Self {
+        Self {
+            payload,
+            flow_id: None,
+        }
+    }
+
+    /// Create a new datagram with payload and flow ID
+    pub fn with_flow_id(payload: Bytes, flow_id: u64) -> Self {
+        Self {
+            payload,
+            flow_id: Some(flow_id),
+        }
+    }
+
+    /// Get the size of the datagram payload
+    pub fn size(&self) -> usize {
+        self.payload.len()
+    }
+
+    /// Encode the datagram for transmission
+    ///
+    /// Format: [flow_id (optional varint)][payload]
+    pub fn encode(&self) -> Bytes {
+        if let Some(flow_id) = self.flow_id {
+            // Encode flow_id as varint followed by payload
+            let mut buf = Vec::with_capacity(8 + self.payload.len());
+            encode_varint(flow_id, &mut buf);
+            buf.extend_from_slice(&self.payload);
+            Bytes::from(buf)
+        } else {
+            self.payload.clone()
+        }
+    }
+
+    /// Decode a datagram from received bytes
+    ///
+    /// If `expect_flow_id` is true, parses the first varint as flow_id
+    pub fn decode(data: Bytes, expect_flow_id: bool) -> Result<Self, HyperError> {
+        if expect_flow_id {
+            let (flow_id, consumed) = decode_varint(&data)
+                .map_err(|e| HyperError::Datagram(format!("Failed to decode flow_id: {}", e)))?;
+            let payload = data.slice(consumed..);
+            Ok(Self {
+                payload,
+                flow_id: Some(flow_id),
+            })
+        } else {
+            Ok(Self {
+                payload: data,
+                flow_id: None,
+            })
+        }
+    }
+}
+
+/// Encode a u64 as a variable-length integer (QUIC varint format)
+#[cfg(feature = "http3")]
+fn encode_varint(value: u64, buf: &mut Vec<u8>) {
+    if value < 64 {
+        buf.push(value as u8);
+    } else if value < 16384 {
+        buf.push(0x40 | ((value >> 8) as u8));
+        buf.push(value as u8);
+    } else if value < 1073741824 {
+        buf.push(0x80 | ((value >> 24) as u8));
+        buf.push((value >> 16) as u8);
+        buf.push((value >> 8) as u8);
+        buf.push(value as u8);
+    } else {
+        buf.push(0xC0 | ((value >> 56) as u8));
+        buf.push((value >> 48) as u8);
+        buf.push((value >> 40) as u8);
+        buf.push((value >> 32) as u8);
+        buf.push((value >> 24) as u8);
+        buf.push((value >> 16) as u8);
+        buf.push((value >> 8) as u8);
+        buf.push(value as u8);
+    }
+}
+
+/// Decode a variable-length integer from bytes
+/// Returns (value, bytes_consumed)
+#[cfg(feature = "http3")]
+fn decode_varint(data: &[u8]) -> Result<(u64, usize), &'static str> {
+    if data.is_empty() {
+        return Err("Empty data");
+    }
+
+    let first = data[0];
+    let length = 1 << (first >> 6);
+
+    if data.len() < length {
+        return Err("Insufficient data");
+    }
+
+    let value = match length {
+        1 => (first & 0x3F) as u64,
+        2 => {
+            let v = ((first & 0x3F) as u64) << 8 | data[1] as u64;
+            v
+        }
+        4 => {
+            let v = ((first & 0x3F) as u64) << 24
+                | (data[1] as u64) << 16
+                | (data[2] as u64) << 8
+                | data[3] as u64;
+            v
+        }
+        8 => {
+            let v = ((first & 0x3F) as u64) << 56
+                | (data[1] as u64) << 48
+                | (data[2] as u64) << 40
+                | (data[3] as u64) << 32
+                | (data[4] as u64) << 24
+                | (data[5] as u64) << 16
+                | (data[6] as u64) << 8
+                | data[7] as u64;
+            v
+        }
+        _ => return Err("Invalid varint length"),
+    };
+
+    Ok((value, length))
+}
+
+/// Receiver for incoming datagrams
+#[cfg(feature = "http3")]
+pub struct DatagramReceiver {
+    rx: mpsc::Receiver<Datagram>,
+}
+
+#[cfg(feature = "http3")]
+impl DatagramReceiver {
+    /// Receive the next datagram
+    ///
+    /// Returns `None` if the connection is closed
+    pub async fn recv(&mut self) -> Option<Datagram> {
+        self.rx.recv().await
+    }
+
+    /// Try to receive a datagram without blocking
+    pub fn try_recv(&mut self) -> Option<Datagram> {
+        self.rx.try_recv().ok()
+    }
+}
+
+/// Sender for outgoing datagrams
+#[cfg(feature = "http3")]
+#[derive(Clone)]
+pub struct DatagramSender {
+    conn: quinn::Connection,
+    max_size: usize,
+}
+
+#[cfg(feature = "http3")]
+impl DatagramSender {
+    /// Create a new datagram sender
+    fn new(conn: quinn::Connection, max_size: usize) -> Self {
+        Self { conn, max_size }
+    }
+
+    /// Send a datagram
+    ///
+    /// Returns an error if the datagram is too large or the connection is closed
+    pub fn send(&self, datagram: Datagram) -> Result<(), HyperError> {
+        let encoded = datagram.encode();
+        if encoded.len() > self.max_size {
+            return Err(HyperError::Datagram(format!(
+                "Datagram too large: {} > {} bytes",
+                encoded.len(),
+                self.max_size
+            )));
+        }
+        self.conn
+            .send_datagram(encoded)
+            .map_err(|e| HyperError::Datagram(format!("Failed to send datagram: {}", e)))
+    }
+
+    /// Send raw bytes as a datagram
+    pub fn send_bytes(&self, data: Bytes) -> Result<(), HyperError> {
+        if data.len() > self.max_size {
+            return Err(HyperError::Datagram(format!(
+                "Datagram too large: {} > {} bytes",
+                data.len(),
+                self.max_size
+            )));
+        }
+        self.conn
+            .send_datagram(data)
+            .map_err(|e| HyperError::Datagram(format!("Failed to send datagram: {}", e)))
+    }
+
+    /// Get the maximum datagram size
+    pub fn max_size(&self) -> usize {
+        self.max_size
+    }
+}
+
+/// A persistent HTTP/3 connection with datagram support
+#[cfg(feature = "http3")]
+pub struct H3Connection {
+    conn: quinn::Connection,
+    datagram_sender: DatagramSender,
+    datagram_rx: Option<mpsc::Receiver<Datagram>>,
+    config: Arc<HyperConfig>,
+}
+
+#[cfg(feature = "http3")]
+impl H3Connection {
+    /// Get the remote address of this connection
+    pub fn remote_address(&self) -> SocketAddr {
+        self.conn.remote_address()
+    }
+
+    /// Get the datagram sender for this connection
+    pub fn datagram_sender(&self) -> DatagramSender {
+        self.datagram_sender.clone()
+    }
+
+    /// Take the datagram receiver
+    ///
+    /// Can only be called once; returns None on subsequent calls
+    pub fn take_datagram_receiver(&mut self) -> Option<DatagramReceiver> {
+        self.datagram_rx.take().map(|rx| DatagramReceiver { rx })
+    }
+
+    /// Send a datagram on this connection
+    pub fn send_datagram(&self, datagram: Datagram) -> Result<(), HyperError> {
+        self.datagram_sender.send(datagram)
+    }
+
+    /// Check if datagrams are enabled on this connection
+    pub fn datagrams_enabled(&self) -> bool {
+        self.config.enable_datagrams
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> quinn::ConnectionStats {
+        self.conn.stats()
+    }
+
+    /// Close the connection gracefully
+    pub fn close(&self, code: u32, reason: &str) {
+        self.conn.close(
+            quinn::VarInt::from_u32(code),
+            reason.as_bytes(),
+        );
     }
 }
 
@@ -119,6 +402,68 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 #[cfg(feature = "http3")]
 pub trait H3Service: Clone + Send + 'static {
     fn call(&self, req: Request<()>) -> BoxFuture<Result<Response<Bytes>, StatusCode>>;
+}
+
+/// Trait for handling incoming datagrams on the server
+#[cfg(feature = "http3")]
+pub trait DatagramHandler: Clone + Send + 'static {
+    /// Handle an incoming datagram
+    ///
+    /// The handler receives the datagram and a sender to respond with datagrams.
+    fn handle(&self, datagram: Datagram, sender: DatagramSender);
+}
+
+/// A simple datagram handler that uses a callback function
+#[cfg(feature = "http3")]
+#[derive(Clone)]
+pub struct FnDatagramHandler<F> {
+    handler: F,
+}
+
+#[cfg(feature = "http3")]
+impl<F> FnDatagramHandler<F>
+where
+    F: Fn(Datagram, DatagramSender) + Clone + Send + 'static,
+{
+    /// Create a new function-based datagram handler
+    pub fn new(handler: F) -> Self {
+        Self { handler }
+    }
+}
+
+#[cfg(feature = "http3")]
+impl<F> DatagramHandler for FnDatagramHandler<F>
+where
+    F: Fn(Datagram, DatagramSender) + Clone + Send + 'static,
+{
+    fn handle(&self, datagram: Datagram, sender: DatagramSender) {
+        (self.handler)(datagram, sender);
+    }
+}
+
+/// Server-side connection handle for datagram operations
+#[cfg(feature = "http3")]
+pub struct ServerConnection {
+    conn: quinn::Connection,
+    config: Arc<HyperConfig>,
+}
+
+#[cfg(feature = "http3")]
+impl ServerConnection {
+    /// Get a datagram sender for this connection
+    pub fn datagram_sender(&self) -> DatagramSender {
+        DatagramSender::new(self.conn.clone(), self.config.max_datagram_size)
+    }
+
+    /// Get the remote address
+    pub fn remote_address(&self) -> SocketAddr {
+        self.conn.remote_address()
+    }
+
+    /// Get connection statistics
+    pub fn stats(&self) -> quinn::ConnectionStats {
+        self.conn.stats()
+    }
 }
 
 /// HTTP/3 server builder
@@ -252,6 +597,201 @@ impl H3Server {
         }
 
         Ok(())
+    }
+
+    /// Start the HTTP/3 server with datagram support
+    ///
+    /// Similar to `serve()`, but also accepts a datagram handler for processing
+    /// incoming datagrams.
+    ///
+    /// # Arguments
+    /// * `service` - The service to handle incoming HTTP/3 requests
+    /// * `datagram_handler` - Handler for incoming datagrams
+    ///
+    /// # Example
+    /// ```ignore
+    /// use quill_transport::{H3ServerBuilder, H3Service, FnDatagramHandler, Datagram};
+    ///
+    /// let server = H3ServerBuilder::new(addr)
+    ///     .enable_datagrams(true)
+    ///     .build()?;
+    ///
+    /// let datagram_handler = FnDatagramHandler::new(|dg, sender| {
+    ///     println!("Received datagram: {:?}", dg.payload);
+    ///     // Echo back
+    ///     let _ = sender.send(dg);
+    /// });
+    ///
+    /// server.serve_with_datagrams(my_service, datagram_handler).await?;
+    /// ```
+    pub async fn serve_with_datagrams<S, D>(
+        mut self,
+        service: S,
+        datagram_handler: D,
+    ) -> Result<(), HyperError>
+    where
+        S: H3Service,
+        D: DatagramHandler,
+    {
+        info!("Starting HTTP/3 server with datagram support on {}", self.bind_addr);
+
+        // Create rustls server configuration
+        let tls_config = self.create_server_tls_config()?;
+
+        // Wrap in QuicServerConfig
+        let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)
+            .map_err(|e| HyperError::Tls(format!("Failed to create QUIC server config: {}", e)))?;
+
+        // Create quinn server configuration
+        let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
+
+        // Configure transport
+        let mut transport_config = quinn::TransportConfig::default();
+
+        let max_streams = quinn::VarInt::from_u32(self.config.max_concurrent_streams as u32);
+        transport_config.max_concurrent_bidi_streams(max_streams);
+        transport_config.max_concurrent_uni_streams(max_streams);
+
+        transport_config.max_idle_timeout(Some(
+            quinn::IdleTimeout::try_from(Duration::from_millis(self.config.idle_timeout_ms))
+                .map_err(|_| HyperError::Config("Invalid idle timeout".to_string()))?
+        ));
+        transport_config.keep_alive_interval(Some(Duration::from_millis(self.config.keep_alive_interval_ms)));
+
+        // Enable datagrams
+        transport_config.datagram_receive_buffer_size(Some(self.config.max_datagram_size));
+        transport_config.datagram_send_buffer_size(self.config.max_datagram_size);
+
+        server_config.transport_config(Arc::new(transport_config));
+
+        // Create and bind endpoint
+        let endpoint = quinn::Endpoint::server(server_config, self.bind_addr)
+            .map_err(|e| HyperError::QuicConnection(format!("Failed to bind endpoint: {}", e)))?;
+
+        info!("HTTP/3 server with datagrams listening on {}", endpoint.local_addr().unwrap());
+        self.endpoint = Some(endpoint.clone());
+
+        let config = Arc::new(self.config);
+
+        // Accept connections
+        while let Some(conn) = endpoint.accept().await {
+            let service = service.clone();
+            let datagram_handler = datagram_handler.clone();
+            let config = config.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = Self::handle_connection_with_datagrams(
+                    conn,
+                    service,
+                    datagram_handler,
+                    config,
+                ).await {
+                    error!("Connection error: {}", e);
+                }
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Handle a single QUIC connection with datagram support
+    async fn handle_connection_with_datagrams<S, D>(
+        conn: quinn::Incoming,
+        service: S,
+        datagram_handler: D,
+        config: Arc<HyperConfig>,
+    ) -> Result<(), HyperError>
+    where
+        S: H3Service,
+        D: DatagramHandler,
+    {
+        let remote_addr = conn.remote_address();
+        debug!("Accepting connection with datagram support from {}", remote_addr);
+
+        let quinn_conn = conn
+            .await
+            .map_err(|e| HyperError::QuicConnection(format!("Connection failed: {}", e)))?;
+
+        debug!("Connection established with {}", remote_addr);
+
+        // Spawn datagram handler task
+        let datagram_conn = quinn_conn.clone();
+        let dg_handler = datagram_handler.clone();
+        let dg_config = config.clone();
+        tokio::spawn(async move {
+            Self::datagram_handler_task(datagram_conn, dg_handler, dg_config).await;
+        });
+
+        // Create h3 connection for HTTP/3 streams
+        let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(quinn_conn))
+            .await
+            .map_err(|e| HyperError::H3Stream(format!("H3 connection failed: {}", e)))?;
+
+        // Handle HTTP/3 requests
+        loop {
+            match h3_conn.accept().await {
+                Ok(Some(resolver)) => {
+                    let service = service.clone();
+                    tokio::spawn(async move {
+                        match resolver.resolve_request().await {
+                            Ok((req, stream)) => {
+                                if let Err(e) = Self::handle_request(req, stream, service).await {
+                                    error!("Request error: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to resolve request: {}", e);
+                            }
+                        }
+                    });
+                }
+                Ok(None) => {
+                    debug!("Connection closed by client");
+                    break;
+                }
+                Err(e) => {
+                    error!("Error accepting request: {}", e);
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Task that handles incoming datagrams for a connection
+    async fn datagram_handler_task<D>(
+        conn: quinn::Connection,
+        handler: D,
+        config: Arc<HyperConfig>,
+    )
+    where
+        D: DatagramHandler,
+    {
+        let sender = DatagramSender::new(conn.clone(), config.max_datagram_size);
+
+        loop {
+            match conn.read_datagram().await {
+                Ok(data) => {
+                    let datagram = Datagram::new(data);
+                    handler.handle(datagram, sender.clone());
+                }
+                Err(e) => {
+                    match e {
+                        quinn::ConnectionError::ApplicationClosed(_) => {
+                            debug!("Datagram connection closed by application");
+                        }
+                        quinn::ConnectionError::ConnectionClosed(_) => {
+                            debug!("Datagram connection closed");
+                        }
+                        _ => {
+                            warn!("Error receiving datagram: {}", e);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     /// Handle a single QUIC connection
@@ -579,6 +1119,139 @@ impl H3Client {
         Ok(resp.map(|_| Bytes::from(body_data)))
     }
 
+    /// Establish a persistent connection with datagram support
+    ///
+    /// Returns an `H3Connection` that can be used for both HTTP/3 streams
+    /// and unreliable datagrams.
+    ///
+    /// # Arguments
+    /// * `addr` - The server address to connect to
+    /// * `server_name` - The server name for TLS (SNI)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let client = H3ClientBuilder::new()
+    ///     .enable_datagrams(true)
+    ///     .build()?;
+    ///
+    /// let mut conn = client.connect(addr, "example.com").await?;
+    ///
+    /// // Send datagrams
+    /// conn.send_datagram(Datagram::new(Bytes::from("hello")))?;
+    ///
+    /// // Receive datagrams
+    /// let mut rx = conn.take_datagram_receiver().unwrap();
+    /// while let Some(dg) = rx.recv().await {
+    ///     println!("Received: {:?}", dg.payload);
+    /// }
+    /// ```
+    pub async fn connect(
+        &self,
+        addr: SocketAddr,
+        server_name: &str,
+    ) -> Result<H3Connection, HyperError> {
+        info!("Connecting to {} ({})", addr, server_name);
+
+        // Connect to server
+        let conn = self
+            .endpoint
+            .connect(addr, server_name)
+            .map_err(|e| HyperError::QuicConnection(format!("Connection failed: {}", e)))?
+            .await
+            .map_err(|e| HyperError::QuicConnection(format!("Connection failed: {}", e)))?;
+
+        debug!("QUIC connection established with {}", addr);
+
+        // Create datagram channel
+        let (datagram_tx, datagram_rx) = mpsc::channel(256);
+
+        // Spawn datagram receiver task if datagrams are enabled
+        if self.config.enable_datagrams {
+            let conn_clone = conn.clone();
+            tokio::spawn(async move {
+                Self::datagram_receiver_task(conn_clone, datagram_tx).await;
+            });
+        }
+
+        let max_datagram_size = self.config.max_datagram_size;
+        let datagram_sender = DatagramSender::new(conn.clone(), max_datagram_size);
+
+        Ok(H3Connection {
+            conn,
+            datagram_sender,
+            datagram_rx: Some(datagram_rx),
+            config: self.config.clone(),
+        })
+    }
+
+    /// Internal task that receives datagrams from the QUIC connection
+    async fn datagram_receiver_task(
+        conn: quinn::Connection,
+        tx: mpsc::Sender<Datagram>,
+    ) {
+        loop {
+            match conn.read_datagram().await {
+                Ok(data) => {
+                    let datagram = Datagram::new(data);
+                    if tx.send(datagram).await.is_err() {
+                        debug!("Datagram receiver channel closed");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    match e {
+                        quinn::ConnectionError::ApplicationClosed(_) => {
+                            debug!("Connection closed by application");
+                        }
+                        quinn::ConnectionError::ConnectionClosed(_) => {
+                            debug!("Connection closed");
+                        }
+                        _ => {
+                            warn!("Error receiving datagram: {}", e);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Send a datagram on a one-shot connection
+    ///
+    /// This method establishes a connection, sends the datagram, and returns.
+    /// For repeated datagram sends, use `connect()` to get a persistent connection.
+    pub async fn send_datagram_oneshot(
+        &self,
+        addr: SocketAddr,
+        datagram: Datagram,
+    ) -> Result<(), HyperError> {
+        if !self.config.enable_datagrams {
+            return Err(HyperError::Datagram("Datagrams are disabled".to_string()));
+        }
+
+        let conn = self
+            .endpoint
+            .connect(addr, "localhost")
+            .map_err(|e| HyperError::QuicConnection(format!("Connection failed: {}", e)))?
+            .await
+            .map_err(|e| HyperError::QuicConnection(format!("Connection failed: {}", e)))?;
+
+        let encoded = datagram.encode();
+        if encoded.len() > self.config.max_datagram_size {
+            return Err(HyperError::Datagram(format!(
+                "Datagram too large: {} > {} bytes",
+                encoded.len(),
+                self.config.max_datagram_size
+            )));
+        }
+
+        conn.send_datagram(encoded)
+            .map_err(|e| HyperError::Datagram(format!("Failed to send datagram: {}", e)))?;
+
+        debug!("Datagram sent to {}", addr);
+        Ok(())
+    }
+
     /// Create client TLS configuration
     fn create_client_tls_config(config: &HyperConfig) -> Result<rustls::ClientConfig, HyperError> {
         let mut tls_config = rustls::ClientConfig::builder()
@@ -731,5 +1404,120 @@ mod tests {
 
         assert!(client.config().enable_zero_rtt);
         assert!(!client.config().enable_datagrams);
+    }
+
+    // ========================================================================
+    // Datagram Tests
+    // ========================================================================
+
+    #[test]
+    fn test_datagram_new() {
+        let payload = Bytes::from("hello world");
+        let dg = Datagram::new(payload.clone());
+
+        assert_eq!(dg.payload, payload);
+        assert!(dg.flow_id.is_none());
+        assert_eq!(dg.size(), 11);
+    }
+
+    #[test]
+    fn test_datagram_with_flow_id() {
+        let payload = Bytes::from("test data");
+        let dg = Datagram::with_flow_id(payload.clone(), 42);
+
+        assert_eq!(dg.payload, payload);
+        assert_eq!(dg.flow_id, Some(42));
+    }
+
+    #[test]
+    fn test_datagram_encode_decode_no_flow_id() {
+        let original = Datagram::new(Bytes::from("hello"));
+        let encoded = original.encode();
+
+        // Without flow_id, encode just returns the payload
+        assert_eq!(encoded, Bytes::from("hello"));
+
+        let decoded = Datagram::decode(encoded, false).unwrap();
+        assert_eq!(decoded.payload, original.payload);
+        assert!(decoded.flow_id.is_none());
+    }
+
+    #[test]
+    fn test_datagram_encode_decode_with_flow_id() {
+        let original = Datagram::with_flow_id(Bytes::from("hello"), 42);
+        let encoded = original.encode();
+
+        // With flow_id, should be: [varint flow_id][payload]
+        assert!(encoded.len() > original.payload.len());
+
+        let decoded = Datagram::decode(encoded, true).unwrap();
+        assert_eq!(decoded.payload, original.payload);
+        assert_eq!(decoded.flow_id, Some(42));
+    }
+
+    #[test]
+    fn test_varint_encode_decode() {
+        // Test various varint values
+        let test_values = vec![
+            0u64,
+            1,
+            63,      // Max 1-byte
+            64,      // Min 2-byte
+            16383,   // Max 2-byte
+            16384,   // Min 4-byte
+            1073741823, // Max 4-byte
+        ];
+
+        for value in test_values {
+            let mut buf = Vec::new();
+            encode_varint(value, &mut buf);
+            let (decoded, consumed) = decode_varint(&buf).unwrap();
+            assert_eq!(decoded, value, "Failed for value {}", value);
+            assert_eq!(consumed, buf.len());
+        }
+    }
+
+    #[test]
+    fn test_datagram_large_flow_id() {
+        // Test with a large flow_id that requires 8-byte encoding
+        let flow_id = 1u64 << 60;
+        let dg = Datagram::with_flow_id(Bytes::from("data"), flow_id);
+        let encoded = dg.encode();
+
+        let decoded = Datagram::decode(encoded, true).unwrap();
+        assert_eq!(decoded.flow_id, Some(flow_id));
+        assert_eq!(decoded.payload, Bytes::from("data"));
+    }
+
+    #[test]
+    fn test_fn_datagram_handler() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let handler = FnDatagramHandler::new(move |_dg, _sender| {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        // The handler can be cloned
+        let handler2 = handler.clone();
+
+        // We can't easily test the handler without a real connection,
+        // but we can verify it compiles and the structure is correct
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+
+        // Verify the handler is Clone
+        drop(handler);
+        drop(handler2);
+    }
+
+    #[test]
+    fn test_hyper_config_datagram_defaults() {
+        let config = HyperConfig::default();
+
+        assert!(config.enable_datagrams);
+        assert_eq!(config.max_datagram_size, 65536);
     }
 }
