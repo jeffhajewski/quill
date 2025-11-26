@@ -31,6 +31,10 @@ zstd = { workspace = true }
 opentelemetry = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 
+[features]
+default = []
+http3 = ["quill-transport/http3"]
+
 [dev-dependencies]
 tokio = { workspace = true }
 criterion = { workspace = true }

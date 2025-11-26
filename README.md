@@ -251,8 +251,11 @@ cargo test --package echo-example
 - [x] HTTP/3 client with quinn Connection and request/response
 - [x] TLS configuration with ring crypto provider
 - [x] RequestResolver API integration for h3 0.0.8
-- [x] Test suite (5 tests)
-- [x] Comprehensive HTTP/3 documentation
+- [x] QuillH3Client for RPC calls over HTTP/3 with Quill framing
+- [x] QuillH3Server for serving RPCs over HTTP/3
+- [x] Streaming support (server, client, bidirectional) over HTTP/3
+- [x] Test suite (17 client tests, 24 server tests, 5 transport tests)
+- [x] Comprehensive HTTP/3 documentation with Quill integration examples
 
 ### Phase 14: REST Gateway with OpenAPI
 - [x] Gateway architecture and URL template mapping
@@ -269,10 +272,10 @@ cargo test --package echo-example
 
 ### Next Steps
 
-- [ ] Integrate HTTP/3 with Quill framing and streaming
 - [ ] WebTransport support for browser clients
 - [ ] HTTP/3 datagrams for unreliable messaging
 - [ ] gRPC bridge production examples and integration tests
+- [ ] Full end-to-end HTTP/3 integration tests
 
 ## Documentation
 

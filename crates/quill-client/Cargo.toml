@@ -28,5 +28,13 @@ opentelemetry = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 rand = "0.8"
 
+# HTTP/3 support (optional)
+rustls = { workspace = true, optional = true }
+
+[features]
+default = []
+http3 = ["quill-transport/http3", "rustls"]
+
 [dev-dependencies]
 tokio = { workspace = true }
+rustls = { workspace = true }

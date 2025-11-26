@@ -244,6 +244,142 @@ Monitor connection migration:
 // QUIC handles all PATH_CHALLENGE/PATH_RESPONSE exchanges
 ```
 
+## Quill RPC over HTTP/3
+
+### QuillH3Client
+
+The `QuillH3Client` provides the same API as `QuillClient` but uses HTTP/3 transport:
+
+```rust
+use quill_client::{QuillH3Client, H3ClientConfig};
+use bytes::Bytes;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let addr = "127.0.0.1:4433".parse()?;
+
+    // Create HTTP/3 client with configuration
+    let client = QuillH3Client::builder(addr)
+        .enable_zero_rtt(true)           // Fast resumption
+        .enable_compression(true)         // zstd compression
+        .max_concurrent_streams(200)
+        .build()?;
+
+    // Make a unary RPC call
+    let request = Bytes::from("hello");
+    let response = client.call("echo.v1.EchoService", "Echo", request).await?;
+
+    println!("Response: {:?}", response);
+    Ok(())
+}
+```
+
+### Server Streaming over HTTP/3
+
+```rust
+use quill_client::QuillH3Client;
+use tokio_stream::StreamExt;
+
+let client = QuillH3Client::builder(addr).build()?;
+
+// Make a server streaming call
+let request = Bytes::from(r#"{"query": "logs"}"#);
+let mut stream = client
+    .call_server_streaming("logging.v1.LogService", "TailLogs", request)
+    .await?;
+
+// Process streaming responses
+while let Some(result) = stream.next().await {
+    match result {
+        Ok(log_entry) => println!("Log: {:?}", log_entry),
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
+```
+
+### Client Streaming over HTTP/3
+
+```rust
+use quill_client::QuillH3Client;
+use tokio_stream::iter;
+
+let client = QuillH3Client::builder(addr).build()?;
+
+// Create a stream of file chunks
+let chunks = vec![
+    Ok(Bytes::from("chunk1")),
+    Ok(Bytes::from("chunk2")),
+    Ok(Bytes::from("chunk3")),
+];
+let request_stream = Box::pin(iter(chunks));
+
+// Make a client streaming call
+let response = client
+    .call_client_streaming("upload.v1.UploadService", "Upload", request_stream)
+    .await?;
+```
+
+### Bidirectional Streaming over HTTP/3
+
+```rust
+use quill_client::QuillH3Client;
+use tokio_stream::StreamExt;
+
+let client = QuillH3Client::builder(addr).build()?;
+
+// Create request stream
+let messages = vec![
+    Ok(Bytes::from(r#"{"text": "Hello"}"#)),
+    Ok(Bytes::from(r#"{"text": "World"}"#)),
+];
+let request_stream = Box::pin(tokio_stream::iter(messages));
+
+// Make bidirectional streaming call
+let mut response_stream = client
+    .call_bidi_streaming("chat.v1.ChatService", "Chat", request_stream)
+    .await?;
+
+while let Some(result) = response_stream.next().await {
+    match result {
+        Ok(msg) => println!("Received: {:?}", msg),
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
+```
+
+### QuillH3Server
+
+The `QuillH3Server` serves Quill RPC methods over HTTP/3:
+
+```rust
+use quill_server::{QuillH3Server, RpcRouter};
+use bytes::Bytes;
+use quill_core::QuillError;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let addr = "0.0.0.0:4433".parse()?;
+
+    // Create server with handlers
+    let server = QuillH3Server::builder(addr)
+        .enable_zero_rtt(true)
+        .enable_datagrams(true)
+        .max_concurrent_streams(200)
+        .idle_timeout_ms(120000)
+        .register("echo.v1.EchoService/Echo", |req: Bytes| async move {
+            Ok(req) // Echo back
+        })
+        .build();
+
+    println!("Quill HTTP/3 server listening on {}", server.bind_addr());
+
+    // Start serving
+    server.serve().await?;
+
+    Ok(())
+}
+```
+
 ## Server Setup
 
 ### Basic HTTP/3 Server

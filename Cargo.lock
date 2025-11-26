@@ -1878,6 +1878,7 @@ dependencies = [
  "quill-core",
  "quill-transport",
  "rand 0.8.5",
+ "rustls",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",

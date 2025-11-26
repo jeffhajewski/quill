@@ -6,7 +6,10 @@
 //! - Middleware (Problem Details, compression, tracing)
 //! - Server runtime
 //! - Streaming support
+//! - HTTP/3 support (with `http3` feature)
 
+#[cfg(feature = "http3")]
+pub mod h3_server;
 pub mod handler;
 pub mod middleware;
 pub mod observability;
@@ -15,6 +18,8 @@ pub mod router;
 pub mod server;
 pub mod streaming;
 
+#[cfg(feature = "http3")]
+pub use h3_server::{H3ServerBuilder, H3ServerConfig, QuillH3Server};
 pub use handler::RpcHandler;
 pub use observability::{check_dependency, DependencyStatus, HealthStatus, ObservabilityCollector};
 pub use request_stream::RequestFrameStream;
