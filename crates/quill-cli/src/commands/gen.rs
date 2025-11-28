@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use clap::Args;
 use quill_codegen::{compile_protos, QuillConfig};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct GenArgs {

@@ -11,8 +11,15 @@ impl ProfileNegotiator {
         Self { supported }
     }
 
+    /// Negotiate profile based on client preference
+    pub fn negotiate(&self, client_pref: &ProfilePreference) -> Option<PrismProfile> {
+        client_pref.negotiate(&self.supported)
+    }
+}
+
+impl Default for ProfileNegotiator {
     /// Default negotiator supports all profiles
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             supported: vec![
                 PrismProfile::Hyper,
@@ -20,11 +27,6 @@ impl ProfileNegotiator {
                 PrismProfile::Classic,
             ],
         }
-    }
-
-    /// Negotiate profile based on client preference
-    pub fn negotiate(&self, client_pref: &ProfilePreference) -> Option<PrismProfile> {
-        client_pref.negotiate(&self.supported)
     }
 }
 

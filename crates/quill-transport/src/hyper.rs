@@ -1345,6 +1345,13 @@ impl HyperTransport {
     }
 }
 
+#[cfg(not(feature = "http3"))]
+impl Default for HyperTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "http3")]
 mod tests {

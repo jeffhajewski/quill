@@ -5,7 +5,6 @@ use bytes::Bytes;
 use clap::Args;
 use quill_client::QuillClient;
 use serde_json::Value;
-use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Args, Debug)]

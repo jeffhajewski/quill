@@ -26,3 +26,6 @@ futures = "0.3"
 url = "2.5"
 hdrhistogram = "7.5"
 serde_yaml = "0.9"
+prost-reflect = { version = "0.14", features = ["serde"] }
+base64 = "0.22"
+hex = "0.4"

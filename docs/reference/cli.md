@@ -217,21 +217,42 @@ Scenario: unary-small
 
 ## quill compat
 
-Check protobuf compatibility between versions.
+Check protobuf compatibility between versions using [buf](https://buf.build).
+
+### Prerequisites
+
+Install the `buf` CLI for full functionality:
+
+```bash
+# macOS
+brew install bufbuild/buf/buf
+
+# Linux
+curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
+chmod +x /usr/local/bin/buf
+```
 
 ### Usage
 
 ```bash
-quill compat [OPTIONS]
+quill compat --against <REF> [INPUT...] [OPTIONS]
 ```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `INPUT` | Proto files or directories to check (default: `.`) |
 
 ### Options
 
 | Option | Description |
 |--------|-------------|
-| `--against <REF>` | Compare against: git ref, tag, or registry |
-| `--proto <PATH>` | Proto files to check |
-| `--breaking` | Only report breaking changes |
+| `-a, --against <REF>` | Compare against: git ref, local path, or buf registry |
+| `--strict` | Exit with code 2 on breaking changes |
+| `--config <FILE>` | Path to buf.yaml configuration |
+| `-f, --format <FMT>` | Output format: `text`, `json` |
+| `--error-limit <N>` | Limit number of errors (0 = unlimited) |
 
 ### Examples
 
@@ -240,85 +261,173 @@ quill compat [OPTIONS]
 quill compat --against v1.0.0
 
 # Compare against main branch
-quill compat --against main
+quill compat --against .git#branch=main
 
-# Check specific proto
-quill compat --against v1.0.0 --proto ./api/v1/users.proto
+# Compare against local directory
+quill compat --against ../old-version
 
-# Breaking changes only
-quill compat --against v1.0.0 --breaking
+# Check specific directory with JSON output
+quill compat --against v1.0.0 ./proto --format json
+
+# Fail CI on breaking changes
+quill compat --against HEAD~1 --strict
+
+# Use custom buf configuration
+quill compat --against main --config buf.yaml
 ```
+
+### Breaking Change Categories
+
+The compatibility check detects:
+
+- **Field removals** - Removing a field breaks deserialization
+- **Field renumbering** - Changing field numbers breaks wire format
+- **Field type changes** - Changing types (e.g., int32 to string)
+- **Required field additions** - Adding required fields to existing messages
+- **Enum value removals** - Removing enum values breaks existing data
+- **Service/method removals** - Removing RPCs breaks clients
+- **Method signature changes** - Changing input/output types
 
 ### Output
 
 ```
-Compatibility Report
-====================
+Checking compatibility...
+  Input:   ./proto
+  Against: v1.0.0
 
-File: api/v1/users.proto
+Breaking changes detected:
 
-BREAKING:
-  - Field 'email' removed from message 'User'
-  - RPC 'DeleteUser' removed from service 'UserService'
+  proto/api.proto:10:3: Field "email" was removed from message "User".
+  proto/api.proto:25:3: RPC "DeleteUser" was removed from service "UserService".
 
-COMPATIBLE:
-  - Field 'phone' added to message 'User' (field 4)
-  - RPC 'UpdateUser' added to service 'UserService'
+Found 2 breaking change(s)
+```
 
-Summary: 2 breaking, 2 compatible changes
+JSON output (with `--format json`):
+
+```json
+[
+  {
+    "file": "proto/api.proto",
+    "line": 10,
+    "column": 3,
+    "message": "Field \"email\" was removed from message \"User\".",
+    "rule": "FIELD_SAME_NAME"
+  }
+]
 ```
 
 ## quill explain
 
-Decode and explain protobuf payloads for debugging.
+Decode and explain protobuf payloads for debugging using dynamic message reflection.
+
+### Prerequisites
+
+Generate a descriptor set from your proto files:
+
+```bash
+protoc --descriptor_set_out=api.pb --include_imports your.proto
+```
 
 ### Usage
 
 ```bash
-quill explain [OPTIONS] <PAYLOAD>
+quill explain --descriptor-set <FILE> --payload <DATA> [OPTIONS]
 ```
-
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `<PAYLOAD>` | Payload as hex, base64, or `@file` |
 
 ### Options
 
 | Option | Description |
 |--------|-------------|
-| `--descriptor <FILE>` | Descriptor set file (`.pb`) |
-| `--type <NAME>` | Expected message type |
-| `--format <FMT>` | Output: `json`, `text`, `binary` |
+| `-d, --descriptor-set <FILE>` | Descriptor set file (`.pb` or `.binpb`) |
+| `-p, --payload <DATA>` | Payload as hex, base64, or file path |
+| `-m, --message-type <NAME>` | Message type (e.g., `users.v1.User`) |
+| `-f, --input-format <FMT>` | Input format: `hex`, `base64`, `file`, `auto` (default) |
+| `-o, --output-format <FMT>` | Output format: `json`, `json-pretty`, `text`, `debug` |
+| `--list-types` | List all message types in descriptor set |
+| `--show-field-numbers` | Show field numbers in text output |
 
 ### Examples
 
 ```bash
 # Decode hex payload
-quill explain --descriptor api.pb \
-  --type users.v1.User \
-  0a05416c696365
+quill explain \
+  --descriptor-set api.pb \
+  --message-type users.v1.User \
+  --payload 0a05416c696365
 
-# Decode base64
-quill explain --descriptor api.pb \
-  --type users.v1.User \
-  CgVBbGljZQ==
+# Decode base64 (auto-detected)
+quill explain -d api.pb -m users.v1.User -p CgVBbGljZQ==
 
-# From file
-quill explain --descriptor api.pb \
-  --type users.v1.User \
-  @payload.bin
+# Read from binary file
+quill explain \
+  --descriptor-set api.pb \
+  --message-type users.v1.User \
+  --payload response.bin \
+  --input-format file
+
+# List available types
+quill explain --descriptor-set api.pb --list-types
+
+# Text output with field numbers
+quill explain -d api.pb -m users.v1.User -p 0a05416c696365 \
+  --output-format text --show-field-numbers
 ```
 
-### Output
+### Generating Descriptor Sets
 
+```bash
+# Single file
+protoc --descriptor_set_out=api.pb --include_imports api.proto
+
+# Multiple files
+protoc --descriptor_set_out=all.pb --include_imports \
+  -I./proto \
+  ./proto/**/*.proto
+
+# With buf
+buf build -o api.pb
+```
+
+### Output Formats
+
+**JSON (default)**:
+```json
+{"name":"Alice","email":"alice@example.com"}
+```
+
+**JSON Pretty**:
 ```json
 {
   "name": "Alice",
   "email": "alice@example.com",
-  "created_at": "2024-01-01T00:00:00Z"
+  "createdAt": "2024-01-01T00:00:00Z"
 }
+```
+
+**Text** (with `--show-field-numbers`):
+```
+name [1]: "Alice"
+email [2]: "alice@example.com"
+created_at [3]: {
+  seconds [1]: 1704067200
+}
+```
+
+### List Types Output
+
+```
+Available message types:
+
+  users.v1
+    - User
+    - CreateUserRequest
+    - CreateUserResponse
+
+Services:
+  users.v1.UserService
+    - GetUser (GetUserRequest -> User)
+    - CreateUser (CreateUserRequest -> CreateUserResponse)
 ```
 
 ## Exit Codes
