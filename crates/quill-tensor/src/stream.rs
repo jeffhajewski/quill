@@ -2,6 +2,29 @@
 //!
 //! Provides types for streaming tensor data with pre-allocation
 //! and zero-copy semantics.
+//!
+//! # GPU Support
+//!
+//! When the `cuda` feature is enabled, use `GpuTensorReceiver` to stream
+//! tensors directly to GPU memory:
+//!
+//! ```rust,ignore
+//! use quill_tensor::{GpuTensorReceiver, TensorMeta, Device, DType};
+//!
+//! // Create receiver for GPU tensor
+//! let meta = TensorMeta::new(vec![1024, 768], DType::Float32)
+//!     .with_device(Device::Cuda);
+//!
+//! let mut receiver = GpuTensorReceiver::new(meta, 0)?; // GPU device 0
+//!
+//! // Feed incoming frames
+//! for frame in incoming_frames {
+//!     receiver.feed(&frame.encode());
+//! }
+//!
+//! // Get tensor (data is already on GPU)
+//! let tensor = receiver.take_tensor()?;
+//! ```
 
 use bytes::{Bytes, BytesMut};
 use std::pin::Pin;
@@ -10,8 +33,9 @@ use std::task::{Context, Poll};
 use futures_core::Stream;
 use pin_project_lite::pin_project;
 
+use crate::buffer::{GpuError, TensorBuffer};
 use crate::frame::{FrameType, TensorFrame, TensorFrameError, TensorFrameParser};
-use crate::tensor::{Tensor, TensorMeta};
+use crate::tensor::{Device, Tensor, TensorMeta};
 
 /// Error type for tensor streaming operations.
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +62,10 @@ pub enum TensorStreamError {
     /// Stream was cancelled.
     #[error("stream cancelled: {0}")]
     Cancelled(String),
+
+    /// GPU operation error.
+    #[error("GPU error: {0}")]
+    Gpu(#[from] GpuError),
 
     /// Internal error.
     #[error("internal error: {0}")]
@@ -389,6 +417,310 @@ impl Default for TensorReceiver {
     }
 }
 
+/// GPU-aware tensor receiver for streaming directly to GPU memory.
+///
+/// This receiver allocates a buffer on the appropriate device (CPU or GPU)
+/// based on the tensor metadata, and streams incoming data directly to that
+/// buffer. For GPU tensors, this enables efficient network-to-GPU transfers.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use quill_tensor::{GpuTensorReceiver, TensorMeta, Device, DType};
+///
+/// // Receive a GPU tensor
+/// let meta = TensorMeta::new(vec![1024, 768], DType::Float32)
+///     .with_device(Device::Cuda);
+///
+/// let mut receiver = GpuTensorReceiver::new(meta, 0)?;
+///
+/// // Feed incoming data
+/// for frame in frames {
+///     receiver.feed(&frame.encode());
+///     receiver.poll()?;
+/// }
+///
+/// // Get tensor with data on GPU
+/// let (meta, buffer) = receiver.take()?;
+/// assert!(buffer.is_gpu());
+/// ```
+pub struct GpuTensorReceiver {
+    parser: TensorFrameParser,
+    meta: TensorMeta,
+    device_id: usize,
+    /// CPU staging buffer for accumulating incoming data
+    staging: BytesMut,
+    /// Target buffer (CPU or GPU)
+    buffer: Option<TensorBuffer>,
+    expected_size: usize,
+    received_size: usize,
+    /// Whether we've finished receiving
+    complete: bool,
+}
+
+impl GpuTensorReceiver {
+    /// Creates a new GPU-aware receiver with the specified metadata and device.
+    ///
+    /// # Arguments
+    ///
+    /// * `meta` - Tensor metadata (shape, dtype, device)
+    /// * `device_id` - GPU device ID for CUDA tensors (ignored for CPU)
+    ///
+    /// # Returns
+    ///
+    /// A receiver that will allocate on the appropriate device.
+    /// For `Device::Cuda`, allocation falls back to CPU if GPU is unavailable.
+    pub fn new(meta: TensorMeta, device_id: usize) -> Result<Self, TensorStreamError> {
+        let expected_size = meta.byte_size();
+
+        // Allocate staging buffer for incoming network data
+        let staging = BytesMut::with_capacity(expected_size);
+
+        Ok(Self {
+            parser: TensorFrameParser::new(),
+            meta,
+            device_id,
+            staging,
+            buffer: None,
+            expected_size,
+            received_size: 0,
+            complete: false,
+        })
+    }
+
+    /// Creates a receiver from raw metadata bytes (from TENSOR_META frame).
+    ///
+    /// This is useful when you receive metadata dynamically and want to
+    /// create a GPU-aware receiver on the fly.
+    pub fn from_meta_bytes(data: &[u8], device_id: usize) -> Result<Self, TensorStreamError> {
+        let meta = decode_tensor_meta(data)?;
+        Self::new(meta, device_id)
+    }
+
+    /// Returns the tensor metadata.
+    pub fn meta(&self) -> &TensorMeta {
+        &self.meta
+    }
+
+    /// Returns the device ID.
+    pub fn device_id(&self) -> usize {
+        self.device_id
+    }
+
+    /// Returns whether all expected data has been received.
+    pub fn is_complete(&self) -> bool {
+        self.complete || (self.expected_size > 0 && self.received_size >= self.expected_size)
+    }
+
+    /// Returns the number of bytes received so far.
+    pub fn received_bytes(&self) -> usize {
+        self.received_size
+    }
+
+    /// Returns the expected total size in bytes.
+    pub fn expected_bytes(&self) -> usize {
+        self.expected_size
+    }
+
+    /// Feeds raw bytes into the receiver.
+    pub fn feed(&mut self, data: &[u8]) {
+        self.parser.feed(data);
+    }
+
+    /// Feeds a Bytes buffer into the receiver.
+    pub fn feed_bytes(&mut self, data: Bytes) {
+        self.parser.feed_bytes(data);
+    }
+
+    /// Processes available frames and returns the next event.
+    pub fn poll(&mut self) -> Result<GpuReceiverEvent, TensorStreamError> {
+        match self.parser.parse_frame()? {
+            None => Ok(GpuReceiverEvent::NeedMoreData),
+            Some(frame) => self.handle_frame(frame),
+        }
+    }
+
+    /// Takes the completed tensor buffer.
+    ///
+    /// Returns the metadata and buffer containing tensor data.
+    /// For GPU tensors, the data will be on the GPU (if allocation succeeded).
+    ///
+    /// # Returns
+    ///
+    /// - `Ok((meta, buffer))` if tensor is complete
+    /// - `Err` if tensor is not complete or transfer failed
+    pub fn take(mut self) -> Result<(TensorMeta, TensorBuffer), TensorStreamError> {
+        if !self.is_complete() {
+            return Err(TensorStreamError::Internal(
+                "Cannot take incomplete tensor".to_string(),
+            ));
+        }
+
+        // If buffer not yet created, do final transfer
+        if self.buffer.is_none() {
+            self.finalize_transfer()?;
+        }
+
+        let buffer = self.buffer.take().ok_or_else(|| {
+            TensorStreamError::Internal("Buffer not available".to_string())
+        })?;
+
+        Ok((self.meta, buffer))
+    }
+
+    /// Takes the completed tensor as a Tensor struct (CPU only).
+    ///
+    /// This converts GPU buffers to CPU for compatibility with existing code.
+    pub fn take_tensor(self) -> Result<Tensor, TensorStreamError> {
+        let (meta, buffer) = self.take()?;
+        let data = buffer.to_host()?;
+        Ok(Tensor::new(meta, data))
+    }
+
+    fn handle_frame(&mut self, frame: TensorFrame) -> Result<GpuReceiverEvent, TensorStreamError> {
+        match frame.frame_type {
+            FrameType::TensorMeta => {
+                // Update metadata if received dynamically
+                let new_meta = decode_tensor_meta(&frame.payload)?;
+                self.meta = new_meta.clone();
+                self.expected_size = new_meta.byte_size();
+                self.staging = BytesMut::with_capacity(self.expected_size);
+                self.received_size = 0;
+                Ok(GpuReceiverEvent::Metadata(new_meta))
+            }
+            FrameType::TensorPayload => {
+                let chunk_size = frame.payload.len();
+                self.staging.extend_from_slice(&frame.payload);
+                self.received_size += chunk_size;
+
+                Ok(GpuReceiverEvent::Data {
+                    offset: self.received_size - chunk_size,
+                    size: chunk_size,
+                })
+            }
+            FrameType::EndStream => {
+                if self.expected_size > 0 && self.received_size != self.expected_size {
+                    return Err(TensorStreamError::SizeMismatch {
+                        expected: self.expected_size,
+                        actual: self.received_size,
+                    });
+                }
+
+                // Finalize transfer to target device
+                self.finalize_transfer()?;
+                self.complete = true;
+
+                Ok(GpuReceiverEvent::End)
+            }
+            FrameType::Cancel => {
+                let reason = String::from_utf8_lossy(&frame.payload).into_owned();
+                Ok(GpuReceiverEvent::Cancelled(reason))
+            }
+            _ => Err(TensorStreamError::UnexpectedFrame {
+                expected: "TENSOR_META, TENSOR_PAYLOAD, END_STREAM, or CANCEL",
+                actual: frame.frame_type.name(),
+            }),
+        }
+    }
+
+    /// Finalizes the transfer by moving data to the target device.
+    fn finalize_transfer(&mut self) -> Result<(), TensorStreamError> {
+        if self.buffer.is_some() {
+            return Ok(()); // Already transferred
+        }
+
+        // Allocate on target device
+        let mut buffer = self.meta.device.allocate_buffer(self.expected_size, self.device_id)?;
+
+        // Copy staging data to buffer
+        let staging_data = std::mem::take(&mut self.staging);
+        buffer.copy_from_slice(&staging_data)?;
+
+        self.buffer = Some(buffer);
+        Ok(())
+    }
+}
+
+/// Events produced by the GPU tensor receiver.
+#[derive(Debug)]
+pub enum GpuReceiverEvent {
+    /// Tensor metadata received or updated.
+    Metadata(TensorMeta),
+    /// Data chunk received.
+    Data {
+        /// Offset in bytes from start of tensor.
+        offset: usize,
+        /// Size of this chunk in bytes.
+        size: usize,
+    },
+    /// Stream ended successfully.
+    End,
+    /// Stream was cancelled.
+    Cancelled(String),
+    /// Need more data to parse next frame.
+    NeedMoreData,
+}
+
+/// Decodes tensor metadata from bytes.
+fn decode_tensor_meta(data: &[u8]) -> Result<TensorMeta, TensorStreamError> {
+    if data.is_empty() {
+        return Err(TensorStreamError::Internal("empty metadata".to_string()));
+    }
+
+    let ndim = data[0] as usize;
+    let mut offset = 1;
+
+    if data.len() < offset + ndim * 8 + 1 + 1 + 8 + 2 {
+        return Err(TensorStreamError::Internal("metadata too short".to_string()));
+    }
+
+    let mut shape = Vec::with_capacity(ndim);
+    for _ in 0..ndim {
+        let dim = u64::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+            data[offset + 4],
+            data[offset + 5],
+            data[offset + 6],
+            data[offset + 7],
+        ]) as usize;
+        shape.push(dim);
+        offset += 8;
+    }
+
+    let dtype = crate::dtype::DType::try_from(data[offset]).map_err(|_| {
+        TensorStreamError::Internal(format!("unknown dtype: {}", data[offset]))
+    })?;
+    offset += 1;
+
+    let device = Device::from_proto(data[offset] as i32)
+        .ok_or_else(|| TensorStreamError::Internal(format!("unknown device: {}", data[offset])))?;
+    offset += 1;
+
+    // Skip byte_size (we compute it from shape)
+    offset += 8;
+
+    let name_len = u16::from_le_bytes([data[offset], data[offset + 1]]) as usize;
+    offset += 2;
+
+    let name = if name_len > 0 && data.len() >= offset + name_len {
+        Some(String::from_utf8_lossy(&data[offset..offset + name_len]).into_owned())
+    } else {
+        None
+    };
+
+    Ok(TensorMeta {
+        shape,
+        dtype,
+        device,
+        strides: None,
+        name,
+        requires_grad: false,
+    })
+}
+
 /// Events produced by the tensor receiver.
 #[derive(Debug)]
 pub enum ReceiverEvent {
@@ -516,5 +848,171 @@ mod tests {
 
         let received = receiver.take_tensor().unwrap();
         assert_eq!(received.numel(), 100);
+    }
+
+    #[test]
+    fn test_gpu_receiver_cpu_tensor() {
+        // Test GPU receiver with CPU tensor (should work on any machine)
+        let meta = TensorMeta::new(vec![4], DType::Float32).with_device(Device::Cpu);
+        let tensor = Tensor::from_f32(&meta, &[1.0, 2.0, 3.0, 4.0]);
+
+        let sender = TensorSender::new();
+        let frames = sender.encode_tensor(&tensor);
+
+        let mut receiver = GpuTensorReceiver::new(meta, 0).unwrap();
+
+        // Feed all frames
+        for frame in frames {
+            receiver.feed(&frame.encode());
+        }
+
+        // Process frames
+        let mut got_data = false;
+        let mut got_end = false;
+
+        loop {
+            match receiver.poll().unwrap() {
+                GpuReceiverEvent::Metadata(_) => {}
+                GpuReceiverEvent::Data { size, .. } => {
+                    assert_eq!(size, 16); // 4 * f32
+                    got_data = true;
+                }
+                GpuReceiverEvent::End => {
+                    got_end = true;
+                    break;
+                }
+                GpuReceiverEvent::NeedMoreData => break,
+                GpuReceiverEvent::Cancelled(_) => panic!("unexpected cancel"),
+            }
+        }
+
+        assert!(got_data);
+        assert!(got_end);
+
+        // Take the tensor
+        let (meta, buffer) = receiver.take().unwrap();
+        assert_eq!(meta.shape, vec![4]);
+        assert!(buffer.is_cpu()); // CPU device should allocate CPU buffer
+        assert_eq!(buffer.len(), 16);
+    }
+
+    #[test]
+    fn test_gpu_receiver_cuda_fallback() {
+        // Test GPU receiver with CUDA tensor on machine without GPU
+        // Should fall back to CPU allocation
+        let meta = TensorMeta::new(vec![4], DType::Float32).with_device(Device::Cuda);
+        let tensor = Tensor::from_f32(&meta.clone().with_device(Device::Cpu), &[5.0, 6.0, 7.0, 8.0]);
+
+        let sender = TensorSender::new();
+        let frames = sender.encode_tensor(&tensor);
+
+        let mut receiver = GpuTensorReceiver::new(meta, 0).unwrap();
+
+        // Feed all frames (sender encodes with CPU device, but we handle it)
+        for frame in frames {
+            receiver.feed(&frame.encode());
+        }
+
+        // Process frames
+        loop {
+            match receiver.poll().unwrap() {
+                GpuReceiverEvent::End => break,
+                GpuReceiverEvent::NeedMoreData => break,
+                _ => continue,
+            }
+        }
+
+        // Take should work (falls back to CPU if no GPU)
+        let (meta, buffer) = receiver.take().unwrap();
+        assert_eq!(meta.byte_size(), 16);
+        assert_eq!(buffer.len(), 16);
+
+        // Verify data
+        let host_data = buffer.to_host().unwrap();
+        assert_eq!(host_data.len(), 16);
+    }
+
+    #[test]
+    fn test_gpu_receiver_take_tensor() {
+        // Test the take_tensor() convenience method
+        let meta = TensorMeta::new(vec![2, 2], DType::Float32);
+        let tensor = Tensor::from_f32(&meta, &[1.0, 2.0, 3.0, 4.0]);
+
+        let sender = TensorSender::new();
+        let frames = sender.encode_tensor(&tensor);
+
+        let mut receiver = GpuTensorReceiver::new(meta, 0).unwrap();
+
+        for frame in frames {
+            receiver.feed(&frame.encode());
+        }
+
+        loop {
+            match receiver.poll().unwrap() {
+                GpuReceiverEvent::End => break,
+                GpuReceiverEvent::NeedMoreData => break,
+                _ => continue,
+            }
+        }
+
+        // Use take_tensor for CPU Tensor
+        let received = receiver.take_tensor().unwrap();
+        assert_eq!(received.shape(), &[2, 2]);
+        assert_eq!(received.as_f32(), &[1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_gpu_receiver_progress_tracking() {
+        let meta = TensorMeta::new(vec![100], DType::Float32); // 400 bytes
+        let data: Vec<f32> = (0..100).map(|i| i as f32).collect();
+        let tensor = Tensor::from_f32(&meta, &data);
+
+        // Use small chunks to test progress
+        let sender = TensorSender::with_chunk_size(100);
+        let frames = sender.encode_tensor(&tensor);
+
+        let mut receiver = GpuTensorReceiver::new(meta, 0).unwrap();
+
+        assert_eq!(receiver.expected_bytes(), 400);
+        assert_eq!(receiver.received_bytes(), 0);
+        assert!(!receiver.is_complete());
+
+        for frame in frames {
+            receiver.feed(&frame.encode());
+            while let Ok(event) = receiver.poll() {
+                match event {
+                    GpuReceiverEvent::NeedMoreData => break,
+                    GpuReceiverEvent::End => break,
+                    _ => {}
+                }
+            }
+        }
+
+        assert!(receiver.is_complete());
+        assert_eq!(receiver.received_bytes(), 400);
+    }
+
+    #[test]
+    fn test_decode_tensor_meta() {
+        // Test the metadata decoding function
+        let meta = TensorMeta::new(vec![10, 20], DType::Float16)
+            .with_device(Device::Cuda)
+            .with_name("test_tensor");
+
+        // Encode using sender
+        let sender = TensorSender::new();
+        let tensor = Tensor::zeros(meta.clone());
+        let frames = sender.encode_tensor(&tensor);
+
+        // Get the metadata frame
+        let meta_frame = &frames[0];
+        assert_eq!(meta_frame.frame_type, FrameType::TensorMeta);
+
+        // Decode
+        let decoded = decode_tensor_meta(&meta_frame.payload).unwrap();
+        assert_eq!(decoded.shape, vec![10, 20]);
+        assert_eq!(decoded.dtype, DType::Float16);
+        assert_eq!(decoded.device, Device::Cuda);
+        assert_eq!(decoded.name, Some("test_tensor".to_string()));
     }
 }

@@ -489,10 +489,16 @@ service ImageService {
 - [x] Context documentation (context/gpu_streaming.yaml)
 - [x] 41 tests passing including GPU buffer tests
 
-**Phase 19.2: Streaming Integration** (Planned):
-- [ ] Update `TensorReceiver` to allocate directly on GPU via TENSOR_META
-- [ ] Implement DMA transfers during streaming (host→device)
-- [ ] GPU memory pressure signaling via flow control
+**Phase 19.2: Streaming Integration** ✅:
+- [x] Create `GpuTensorReceiver` for device-aware tensor streaming
+- [x] Implement device allocation based on `TensorMeta.device`
+- [x] Add `GpuReceiverEvent` for streaming progress events
+- [x] Implement data staging and device transfer at stream end
+- [x] Add progress tracking (`received_bytes()`, `expected_bytes()`, `is_complete()`)
+- [x] Add `take()` method returning `(TensorMeta, TensorBuffer)`
+- [x] Add `take_tensor()` convenience method for CPU compatibility
+- [x] 5 new streaming tests (46 total quill-tensor tests)
+- [ ] GPU memory pressure signaling via flow control (future)
 
 **Phase 19.3: Performance Optimization** (Planned):
 - [ ] Pinned (page-locked) memory pools for DMA transfers
@@ -626,4 +632,4 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 
 **Python Bindings**: PyO3-based Python package (`quill`) for ML inference and tensor streaming. Provides PyDType (ML data types), PyTensor/PyTensorMeta (NumPy integration), PyToken/PyTokenBatch (LLM token streaming), and PyQuillClient (RPC calls). Build with maturin: `cd crates/quill-python && maturin develop`. Tests require `python-tests` feature flag. See `docs/python-bindings.md` for comprehensive guide.
 
-**Tests**: 313 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, LLM inference example tests, Python binding tests, and benchmark tests)
+**Tests**: 318 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, GPU streaming tests, LLM inference example tests, Python binding tests, and benchmark tests)

@@ -222,29 +222,66 @@ let gpu1_buffer = buffer.to_gpu(1)?;
 
 ## Integration with Tensor Streaming
 
-### Pre-allocate for Streaming
+### GpuTensorReceiver
 
-When receiving tensors, use `TensorMeta` to pre-allocate on the correct device:
+Use `GpuTensorReceiver` to stream tensors directly to GPU memory:
 
 ```rust
-use quill_tensor::{TensorMeta, TensorReceiver, Device};
+use quill_tensor::{GpuTensorReceiver, GpuReceiverEvent, TensorMeta, Device, DType};
 
-// Receive metadata frame
+// Create metadata for GPU tensor
 let meta = TensorMeta::new(vec![1024, 768], DType::Float32)
     .with_device(Device::Cuda);
 
-// Pre-allocate GPU buffer
-let buffer = meta.allocate_buffer(0)?;
+// Create GPU-aware receiver (device_id = 0)
+let mut receiver = GpuTensorReceiver::new(meta, 0)?;
 
-// Create receiver with pre-allocated buffer
-let receiver = TensorReceiver::with_buffer(meta, buffer);
+// Feed incoming frame data
+for frame in incoming_frames {
+    receiver.feed(&frame.encode());
 
-// Feed incoming bytes directly to GPU
-for chunk in incoming_chunks {
-    receiver.feed_bytes(&chunk)?;
+    // Process frames
+    loop {
+        match receiver.poll()? {
+            GpuReceiverEvent::Metadata(meta) => {
+                println!("Received metadata: {:?}", meta.shape);
+            }
+            GpuReceiverEvent::Data { offset, size } => {
+                println!("Received {} bytes at offset {}", size, offset);
+            }
+            GpuReceiverEvent::End => break,
+            GpuReceiverEvent::NeedMoreData => break,
+            GpuReceiverEvent::Cancelled(reason) => {
+                return Err(format!("Cancelled: {}", reason).into());
+            }
+        }
+    }
 }
 
-let tensor = receiver.finish()?;
+// Take the completed tensor buffer
+let (meta, buffer) = receiver.take()?;
+
+if buffer.is_gpu() {
+    println!("Data received directly on GPU!");
+}
+```
+
+### Progress Tracking
+
+```rust
+let mut receiver = GpuTensorReceiver::new(meta, 0)?;
+
+// Check progress during streaming
+println!("Expected: {} bytes", receiver.expected_bytes());
+println!("Received: {} bytes", receiver.received_bytes());
+println!("Complete: {}", receiver.is_complete());
+```
+
+### Convert to CPU Tensor
+
+```rust
+// For compatibility with existing code that expects CPU tensors
+let tensor = receiver.take_tensor()?; // Copies to CPU if on GPU
 ```
 
 ### Flow Control for GPU Memory

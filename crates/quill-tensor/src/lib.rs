@@ -47,7 +47,9 @@ pub mod token;
 pub use buffer::{GpuError, GpuResult, GpuStatus, TensorBuffer};
 pub use dtype::DType;
 pub use frame::{FrameType, TensorFrame, TensorFrameError, TensorFrameParser};
-pub use stream::{TensorChunk, TensorReceiver, TensorSender, TensorStream};
+pub use stream::{
+    GpuReceiverEvent, GpuTensorReceiver, TensorChunk, TensorReceiver, TensorSender, TensorStream,
+};
 pub use tensor::{Device, Tensor, TensorMeta, TensorView};
 pub use token::{Token, TokenBatch, TokenBatchBuilder, TokenStream};
 
