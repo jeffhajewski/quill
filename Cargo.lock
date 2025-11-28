@@ -641,6 +641,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cudarc"
+version = "0.11.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a5bd4d1eee570c3b2ac64ed114125517dd1e541d88dd28fc259f1de4dba8d60"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2359,6 +2368,7 @@ name = "quill-tensor"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cudarc",
  "futures",
  "futures-core",
  "half",
@@ -2366,6 +2376,7 @@ dependencies = [
  "quill-core",
  "thiserror 1.0.69",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

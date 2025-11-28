@@ -2,9 +2,27 @@
 //!
 //! Provides `Tensor`, `TensorMeta`, and `TensorView` types for efficient
 //! tensor storage and zero-copy access.
+//!
+//! # GPU Support
+//!
+//! Tensors can be stored on GPU when the `cuda` feature is enabled:
+//!
+//! ```rust,ignore
+//! use quill_tensor::{TensorMeta, Device, TensorBuffer, GpuStatus};
+//!
+//! // Check GPU availability
+//! if GpuStatus::detect().is_available() {
+//!     let meta = TensorMeta::new(vec![1024, 768], DType::Float32)
+//!         .with_device(Device::Cuda);
+//!
+//!     // Allocate on GPU (falls back to CPU if unavailable)
+//!     let buffer = TensorBuffer::try_allocate_gpu(meta.byte_size(), 0)?;
+//! }
+//! ```
 
 use bytes::{Bytes, BytesMut};
 
+use crate::buffer::{GpuResult, TensorBuffer};
 use crate::dtype::{DType, Element};
 
 /// Device where the tensor data is located.
@@ -32,6 +50,34 @@ impl Device {
     #[inline]
     pub const fn to_proto(&self) -> i32 {
         *self as i32
+    }
+
+    /// Returns true if this is a GPU device.
+    #[inline]
+    pub const fn is_gpu(&self) -> bool {
+        matches!(self, Device::Cuda)
+    }
+
+    /// Returns true if this is a CPU device.
+    #[inline]
+    pub const fn is_cpu(&self) -> bool {
+        matches!(self, Device::Cpu)
+    }
+
+    /// Allocates a buffer appropriate for this device.
+    ///
+    /// For CPU devices, allocates in host memory.
+    /// For CUDA devices, attempts GPU allocation with fallback to CPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - Size in bytes to allocate
+    /// * `device_id` - GPU device ID (ignored for CPU)
+    pub fn allocate_buffer(&self, size: usize, device_id: usize) -> GpuResult<TensorBuffer> {
+        match self {
+            Device::Cpu => Ok(TensorBuffer::cpu_zeros(size)),
+            Device::Cuda => TensorBuffer::try_allocate_gpu(size, device_id),
+        }
     }
 }
 
@@ -148,6 +194,29 @@ impl TensorMeta {
             strides[i] = strides[i + 1] * self.shape[i + 1];
         }
         strides
+    }
+
+    /// Allocates a buffer appropriate for this tensor's device.
+    ///
+    /// For CPU devices, allocates in host memory.
+    /// For CUDA devices, attempts GPU allocation with fallback to CPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - GPU device ID (ignored for CPU)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use quill_tensor::{TensorMeta, DType, Device};
+    ///
+    /// let meta = TensorMeta::new(vec![1024, 768], DType::Float32)
+    ///     .with_device(Device::Cuda);
+    ///
+    /// let buffer = meta.allocate_buffer(0)?;  // Allocate on GPU 0
+    /// ```
+    pub fn allocate_buffer(&self, device_id: usize) -> GpuResult<TensorBuffer> {
+        self.device.allocate_buffer(self.byte_size(), device_id)
     }
 }
 
@@ -582,5 +651,36 @@ mod tests {
         assert_eq!(meta.name, Some("embedding".to_string()));
         assert_eq!(meta.device, Device::Cuda);
         assert!(meta.requires_grad);
+    }
+
+    #[test]
+    fn test_device_is_gpu() {
+        assert!(Device::Cuda.is_gpu());
+        assert!(!Device::Cpu.is_gpu());
+        assert!(Device::Cpu.is_cpu());
+        assert!(!Device::Cuda.is_cpu());
+    }
+
+    #[test]
+    fn test_device_allocate_buffer() {
+        // CPU allocation should always work
+        let buffer = Device::Cpu.allocate_buffer(1024, 0).unwrap();
+        assert_eq!(buffer.len(), 1024);
+        assert!(buffer.is_cpu());
+    }
+
+    #[test]
+    fn test_tensor_meta_allocate_buffer() {
+        let meta = TensorMeta::new(vec![10, 10], DType::Float32); // 400 bytes
+        let buffer = meta.allocate_buffer(0).unwrap();
+        assert_eq!(buffer.len(), 400);
+    }
+
+    #[test]
+    fn test_cuda_device_allocate_with_fallback() {
+        // CUDA allocation should fall back to CPU if GPU unavailable
+        let buffer = Device::Cuda.allocate_buffer(1024, 0).unwrap();
+        assert_eq!(buffer.len(), 1024);
+        // May be CPU or GPU depending on hardware
     }
 }

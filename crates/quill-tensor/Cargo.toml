@@ -12,6 +12,8 @@ description = "Tensor types and streaming for ML inference in the Quill RPC fram
 default = []
 # Enable full tensor operations (requires more dependencies)
 full = []
+# Enable CUDA GPU support for zero-copy GPU tensor streaming
+cuda = ["dep:cudarc"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -22,6 +24,12 @@ quill-core = { workspace = true }
 # Async streaming support
 futures-core = { workspace = true }
 pin-project-lite = { workspace = true }
+
+# Logging for GPU fallback messages
+tracing = { workspace = true }
+
+# Optional GPU support
+cudarc = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }

@@ -474,51 +474,51 @@ service ImageService {
 - [x] Comprehensive README with API reference
 - [x] Complete Python bindings documentation (docs/python-bindings.md)
 
-### Phase 19: Zero-Copy GPU Tensor Streaming (Planned)
+### Phase 19: Zero-Copy GPU Tensor Streaming (Phase 19.1 ✅)
 **Goal**: Enable direct network-to-GPU tensor transfers, bypassing CPU serialization for massive ML inference workloads.
 
-**Foundation** (cudarc integration):
-- [ ] Add `cudarc` dependency with optional `cuda` feature flag
-- [ ] Create `GpuBuffer<T>` type for GPU memory management
-- [ ] Implement pinned (page-locked) memory for DMA transfers
-- [ ] Add `TensorBuffer` enum (Cpu/Cuda variants) to replace `Bytes`
+**Phase 19.1: Foundation** (cudarc integration) ✅:
+- [x] Add `cudarc` dependency with optional `cuda` feature flag
+- [x] Create `CudaBuffer` type for GPU memory management
+- [x] Add `TensorBuffer` enum (Cpu/Cuda variants)
+- [x] Implement `GpuStatus` for GPU availability detection
+- [x] Add `Device.is_gpu()`, `Device.is_cpu()`, `Device.allocate_buffer()` helpers
+- [x] Add `TensorMeta.allocate_buffer()` for device-aware allocation
+- [x] Graceful fallback to CPU when GPU unavailable
+- [x] Comprehensive GPU streaming documentation (docs/gpu-streaming.md)
+- [x] Context documentation (context/gpu_streaming.yaml)
+- [x] 41 tests passing including GPU buffer tests
 
-**Tensor Integration**:
-- [ ] Modify `Tensor.data` to use `TensorBuffer` instead of `Bytes`
+**Phase 19.2: Streaming Integration** (Planned):
 - [ ] Update `TensorReceiver` to allocate directly on GPU via TENSOR_META
-- [ ] Implement async DMA transfers (CPU→GPU, GPU→CPU)
-- [ ] Support GPU device selection via `TensorMeta.device`
+- [ ] Implement DMA transfers during streaming (host→device)
+- [ ] GPU memory pressure signaling via flow control
 
-**Protocol Extensions**:
-- [ ] Add `gpu_device_id` field to TENSOR_META frame
-- [ ] Add `use_pinned_memory` hint for DMA optimization
-- [ ] Add `transfer_alignment` field for DMA efficiency
-- [ ] Implement GPU memory pressure signaling via CREDIT frames
-
-**Optimization**:
+**Phase 19.3: Performance Optimization** (Planned):
+- [ ] Pinned (page-locked) memory pools for DMA transfers
 - [ ] GPU memory pooling and buffer reuse
-- [ ] Batch DMA transfers for multiple small tensors
-- [ ] Overlapped GPU computation during streaming
+- [ ] Async DMA transfers with CUDA streams
 - [ ] Multi-GPU support with device routing
 
-**Testing & Documentation**:
-- [ ] Benchmarks vs CPU baseline (target: 10x throughput for large tensors)
-- [ ] CUDA example with PyTorch/ONNX integration
-- [ ] GPU streaming documentation with architecture diagrams
+**Phase 19.4: ML Framework Integration** (Planned):
+- [ ] DLPack protocol for PyTorch/JAX interop
+- [ ] CUDA Array Interface
+- [ ] Python bindings for GPU tensors
 
-**Note**: Current tensor implementation has CPU-only `Bytes` storage but architecture is GPU-ready (Device enum, pre-allocation design, async streaming).
+### Phase 20: REST Gateway RPC Integration ✅
+- [x] Implement actual RPC call logic in REST gateway router
+- [x] JSON-to-Protobuf request body conversion (MessageConverter)
+- [x] Protobuf-to-JSON response conversion
+- [x] Path parameter injection into RPC payloads
+- [x] Query parameter merging for GET requests
+- [ ] Server-streaming via SSE or chunked transfer (future)
+- [ ] Client-streaming via multipart or chunked requests (future)
 
-### Phase 20: REST Gateway RPC Integration (Planned)
-- [ ] Implement actual RPC call logic in REST gateway router
-- [ ] JSON-to-Protobuf request body conversion
-- [ ] Protobuf-to-JSON response conversion
-- [ ] Path parameter injection into RPC payloads
-- [ ] Server-streaming via SSE or chunked transfer
-- [ ] Client-streaming via multipart or chunked requests
-
-### Phase 21: CLI Completion (Planned)
-- [ ] `quill compat` - Full breaking change detection with Buf integration
-- [ ] `quill explain` - Payload decoding with file descriptor sets
+### Phase 21: CLI Completion ✅
+- [x] `quill compat` - Full breaking change detection with Buf integration
+- [x] `quill explain` - Payload decoding with file descriptor sets
+- [x] Multiple output formats (JSON, text, debug)
+- [x] Auto-detection of hex/base64/file input
 
 ### Current Implementation Notes
 
@@ -561,6 +561,7 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 - `crates/quill-rest-gateway/src/error.rs` - Problem Details error mapping
 - `crates/quill-tensor/src/dtype.rs` - ML data types (f32, f16, bf16, etc.)
 - `crates/quill-tensor/src/tensor.rs` - Tensor, TensorMeta, TensorView types
+- `crates/quill-tensor/src/buffer.rs` - TensorBuffer, CudaBuffer, GpuStatus for GPU support
 - `crates/quill-tensor/src/frame.rs` - Zero-copy TensorFrame protocol
 - `crates/quill-tensor/src/stream.rs` - TensorStream, TensorSender, TensorReceiver
 - `crates/quill-tensor/src/token.rs` - Token, TokenBatch, TokenStream for LLM
@@ -591,6 +592,7 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 - `docs/grpc-bridge.md` - gRPC bridge architecture and usage
 - `docs/rest-gateway.md` - REST gateway with OpenAPI guide
 - `docs/python-bindings.md` - Python bindings guide with API reference
+- `docs/gpu-streaming.md` - GPU tensor streaming guide with CUDA integration
 - `examples/README.md` - Comprehensive examples guide
 
 **CLI**: `quill` binary provides code generation, RPC calls, benchmarking, compatibility checking, and payload decoding. See `crates/quill-cli/README.md` for usage.
@@ -624,4 +626,4 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 
 **Python Bindings**: PyO3-based Python package (`quill`) for ML inference and tensor streaming. Provides PyDType (ML data types), PyTensor/PyTensorMeta (NumPy integration), PyToken/PyTokenBatch (LLM token streaming), and PyQuillClient (RPC calls). Build with maturin: `cd crates/quill-python && maturin develop`. Tests require `python-tests` feature flag. See `docs/python-bindings.md` for comprehensive guide.
 
-**Tests**: 279 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, authentication tests, CORS tests, rate limit tests, tensor tests, LLM inference example tests, Python binding tests, and benchmark tests)
+**Tests**: 313 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, LLM inference example tests, Python binding tests, and benchmark tests)

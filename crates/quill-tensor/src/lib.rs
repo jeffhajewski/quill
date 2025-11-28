@@ -9,6 +9,18 @@
 //! - **ML data types**: f32, f16, bf16, i8, i32, i64, u8, bool
 //! - **Tensor streaming**: Chunk large tensors for efficient transfer
 //! - **Token batching**: Efficient LLM token generation streaming
+//! - **GPU support**: Optional CUDA GPU memory via `cuda` feature
+//!
+//! # GPU Support
+//!
+//! Enable the `cuda` feature for GPU tensor storage:
+//!
+//! ```toml
+//! [dependencies]
+//! quill-tensor = { version = "0.1", features = ["cuda"] }
+//! ```
+//!
+//! GPU operations gracefully fall back to CPU when CUDA is unavailable.
 //!
 //! # Example
 //!
@@ -25,17 +37,23 @@
 //! assert_eq!(tensor.byte_size(), 24);
 //! ```
 
+pub mod buffer;
 pub mod dtype;
 pub mod frame;
 pub mod stream;
 pub mod tensor;
 pub mod token;
 
+pub use buffer::{GpuError, GpuResult, GpuStatus, TensorBuffer};
 pub use dtype::DType;
 pub use frame::{FrameType, TensorFrame, TensorFrameError, TensorFrameParser};
 pub use stream::{TensorChunk, TensorReceiver, TensorSender, TensorStream};
-pub use tensor::{Tensor, TensorMeta, TensorView};
+pub use tensor::{Device, Tensor, TensorMeta, TensorView};
 pub use token::{Token, TokenBatch, TokenBatchBuilder, TokenStream};
 
 /// Re-export half crate types for convenience
 pub use half::{bf16, f16};
+
+/// Re-export CudaBuffer when cuda feature is enabled
+#[cfg(feature = "cuda")]
+pub use buffer::CudaBuffer;
