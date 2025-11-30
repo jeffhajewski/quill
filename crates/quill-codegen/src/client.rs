@@ -142,7 +142,7 @@ fn generate_method(
                         })
                     });
 
-                    let response_bytes = self.client.client_streaming(
+                    let response_bytes = self.client.call_client_streaming(
                         #service_name,
                         #rpc_method,
                         Box::pin(byte_stream),
@@ -168,7 +168,7 @@ fn generate_method(
                         })
                     });
 
-                    let stream = self.client.bidirectional_streaming(
+                    let stream = self.client.call_bidi_streaming(
                         #service_name,
                         #rpc_method,
                         Box::pin(byte_stream),
@@ -237,5 +237,150 @@ mod tests {
         let code = generate_client(&service, &config);
 
         assert!(code.is_some());
+    }
+
+    #[test]
+    fn test_generate_client_with_server_streaming() {
+        let mut service = make_test_service();
+        service.methods.push(Method {
+            name: "ServerStream".to_string(),
+            proto_name: "ServerStream".to_string(),
+            comments: Default::default(),
+            input_type: "Request".to_string(),
+            output_type: "Response".to_string(),
+            input_proto_type: "Request".to_string(),
+            output_proto_type: "Response".to_string(),
+            options: Default::default(),
+            client_streaming: false,
+            server_streaming: true,
+        });
+
+        let config = QuillConfig::default();
+        let code = generate_client(&service, &config);
+
+        assert!(code.is_some());
+        let code = code.unwrap();
+        // Verify server streaming method is generated
+        assert!(code.contains("server_stream"));
+        // Verify call_server_streaming is used
+        assert!(code.contains("call_server_streaming"));
+    }
+
+    #[test]
+    fn test_generate_client_with_client_streaming() {
+        let mut service = make_test_service();
+        service.methods.push(Method {
+            name: "ClientStream".to_string(),
+            proto_name: "ClientStream".to_string(),
+            comments: Default::default(),
+            input_type: "Request".to_string(),
+            output_type: "Response".to_string(),
+            input_proto_type: "Request".to_string(),
+            output_proto_type: "Response".to_string(),
+            options: Default::default(),
+            client_streaming: true,
+            server_streaming: false,
+        });
+
+        let config = QuillConfig::default();
+        let code = generate_client(&service, &config);
+
+        assert!(code.is_some());
+        let code = code.unwrap();
+        // Verify client streaming method is generated
+        assert!(code.contains("client_stream"));
+        // Verify call_client_streaming is used (not client_streaming)
+        assert!(code.contains("call_client_streaming"));
+        // Verify request_stream parameter
+        assert!(code.contains("request_stream"));
+    }
+
+    #[test]
+    fn test_generate_client_with_bidi_streaming() {
+        let mut service = make_test_service();
+        service.methods.push(Method {
+            name: "BidiStream".to_string(),
+            proto_name: "BidiStream".to_string(),
+            comments: Default::default(),
+            input_type: "Request".to_string(),
+            output_type: "Response".to_string(),
+            input_proto_type: "Request".to_string(),
+            output_proto_type: "Response".to_string(),
+            options: Default::default(),
+            client_streaming: true,
+            server_streaming: true,
+        });
+
+        let config = QuillConfig::default();
+        let code = generate_client(&service, &config);
+
+        assert!(code.is_some());
+        let code = code.unwrap();
+        // Verify bidi streaming method is generated
+        assert!(code.contains("bidi_stream"));
+        // Verify call_bidi_streaming is used (not bidirectional_streaming)
+        assert!(code.contains("call_bidi_streaming"));
+        // Verify request_stream parameter
+        assert!(code.contains("request_stream"));
+    }
+
+    #[test]
+    fn test_generate_client_all_streaming_types() {
+        let mut service = make_test_service();
+        // Server streaming
+        service.methods.push(Method {
+            name: "ServerStream".to_string(),
+            proto_name: "ServerStream".to_string(),
+            comments: Default::default(),
+            input_type: "Request".to_string(),
+            output_type: "Response".to_string(),
+            input_proto_type: "Request".to_string(),
+            output_proto_type: "Response".to_string(),
+            options: Default::default(),
+            client_streaming: false,
+            server_streaming: true,
+        });
+        // Client streaming
+        service.methods.push(Method {
+            name: "ClientStream".to_string(),
+            proto_name: "ClientStream".to_string(),
+            comments: Default::default(),
+            input_type: "Request".to_string(),
+            output_type: "Response".to_string(),
+            input_proto_type: "Request".to_string(),
+            output_proto_type: "Response".to_string(),
+            options: Default::default(),
+            client_streaming: true,
+            server_streaming: false,
+        });
+        // Bidi streaming
+        service.methods.push(Method {
+            name: "BidiStream".to_string(),
+            proto_name: "BidiStream".to_string(),
+            comments: Default::default(),
+            input_type: "Request".to_string(),
+            output_type: "Response".to_string(),
+            input_proto_type: "Request".to_string(),
+            output_proto_type: "Response".to_string(),
+            options: Default::default(),
+            client_streaming: true,
+            server_streaming: true,
+        });
+
+        let config = QuillConfig::default();
+        let code = generate_client(&service, &config);
+
+        assert!(code.is_some());
+        let code = code.unwrap();
+        // Verify all methods are generated
+        assert!(code.contains("unary_call"));
+        assert!(code.contains("server_stream"));
+        assert!(code.contains("client_stream"));
+        assert!(code.contains("bidi_stream"));
+        // Verify correct method calls are used
+        assert!(code.contains("self . client . call"));  // unary
+        assert!(code.contains("call_server_streaming"));
+        assert!(code.contains("call_client_streaming"));
+        assert!(code.contains("call_bidi_streaming"));
     }
 }

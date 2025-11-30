@@ -558,8 +558,18 @@ service ImageService {
 - [x] Code generation for bidirectional streaming route handlers (request stream → response stream)
 - [x] Byte stream to typed message mapping in generated code
 - [x] Typed response to byte stream mapping for bidi streaming
-- [x] 16 codegen tests (3 new streaming tests)
-- [x] All 350+ tests passing
+- [x] 16 server codegen tests (3 new streaming tests)
+
+### Phase 24: Client Codegen Streaming Fix ✅
+- [x] Fixed `client_streaming` → `call_client_streaming` method name in client codegen
+- [x] Fixed `bidirectional_streaming` → `call_bidi_streaming` method name in client codegen
+- [x] Added 4 new client codegen streaming tests:
+  - `test_generate_client_with_server_streaming`
+  - `test_generate_client_with_client_streaming`
+  - `test_generate_client_with_bidi_streaming`
+  - `test_generate_client_all_streaming_types`
+- [x] 20 codegen tests total (4 new client streaming tests)
+- [x] All 363+ tests passing
 
 ### Current Implementation Notes
 
