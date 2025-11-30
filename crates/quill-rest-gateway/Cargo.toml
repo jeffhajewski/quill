@@ -12,6 +12,7 @@ description = "REST gateway for Quill RPC with OpenAPI support"
 quill-core = { workspace = true }
 quill-client = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = "0.1"
 axum = { workspace = true }
 http = { workspace = true }
 http-body-util = "0.1"
@@ -23,6 +24,7 @@ prost-types = { workspace = true }
 prost-reflect = { version = "0.14", features = ["serde"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+futures-util = "0.3"
 base64 = "0.21"
 
 [dev-dependencies]

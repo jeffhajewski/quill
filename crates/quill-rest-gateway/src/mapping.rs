@@ -1,6 +1,7 @@
 //! URL and HTTP method mapping for REST gateway
 
 use crate::error::{GatewayError, GatewayResult};
+use crate::streaming::StreamingConfig;
 use std::collections::HashMap;
 
 /// HTTP methods supported by the gateway
@@ -162,6 +163,20 @@ impl HttpMethodMapping {
     }
 }
 
+/// Streaming mode for RPC methods
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StreamingMode {
+    /// Unary (non-streaming) RPC
+    #[default]
+    Unary,
+    /// Server-side streaming (server sends multiple responses)
+    ServerStreaming,
+    /// Client-side streaming (client sends multiple requests)
+    ClientStreaming,
+    /// Bidirectional streaming (both sides stream)
+    Bidirectional,
+}
+
 /// Route mapping from REST to RPC
 #[derive(Debug, Clone)]
 pub struct RouteMapping {
@@ -171,6 +186,10 @@ pub struct RouteMapping {
     pub method: String,
     /// HTTP method mappings
     pub http_mappings: Vec<HttpMethodMapping>,
+    /// Streaming mode for this route
+    pub streaming_mode: StreamingMode,
+    /// Streaming configuration (for SSE, NDJSON, etc.)
+    pub streaming_config: Option<StreamingConfig>,
 }
 
 impl RouteMapping {
@@ -180,6 +199,8 @@ impl RouteMapping {
             service: service.to_string(),
             method: method.to_string(),
             http_mappings: Vec::new(),
+            streaming_mode: StreamingMode::Unary,
+            streaming_config: None,
         }
     }
 
@@ -187,6 +208,44 @@ impl RouteMapping {
     pub fn add_mapping(mut self, http_method: HttpMethod, url_template: &str) -> GatewayResult<Self> {
         self.http_mappings.push(HttpMethodMapping::new(http_method, url_template)?);
         Ok(self)
+    }
+
+    /// Set streaming mode for this route
+    pub fn with_streaming_mode(mut self, mode: StreamingMode) -> Self {
+        self.streaming_mode = mode;
+        self
+    }
+
+    /// Set server-side streaming with default SSE config
+    pub fn server_streaming(mut self) -> Self {
+        self.streaming_mode = StreamingMode::ServerStreaming;
+        self.streaming_config = Some(StreamingConfig::sse());
+        self
+    }
+
+    /// Set client-side streaming
+    pub fn client_streaming(mut self) -> Self {
+        self.streaming_mode = StreamingMode::ClientStreaming;
+        self.streaming_config = Some(StreamingConfig::client_streaming());
+        self
+    }
+
+    /// Set bidirectional streaming
+    pub fn bidirectional_streaming(mut self) -> Self {
+        self.streaming_mode = StreamingMode::Bidirectional;
+        self.streaming_config = Some(StreamingConfig::bidirectional());
+        self
+    }
+
+    /// Set custom streaming configuration
+    pub fn with_streaming_config(mut self, config: StreamingConfig) -> Self {
+        self.streaming_config = Some(config);
+        self
+    }
+
+    /// Check if this is a streaming route
+    pub fn is_streaming(&self) -> bool {
+        self.streaming_mode != StreamingMode::Unary
     }
 
     /// Find matching HTTP mapping for a request
@@ -271,5 +330,77 @@ mod tests {
 
         // POST should not match
         assert!(mapping.find_mapping(HttpMethod::Post, "/api/v1/users/123").is_none());
+    }
+
+    #[test]
+    fn test_streaming_mode_default() {
+        let mapping = RouteMapping::new("events.v1.EventService", "ListEvents");
+        assert_eq!(mapping.streaming_mode, StreamingMode::Unary);
+        assert!(!mapping.is_streaming());
+    }
+
+    #[test]
+    fn test_server_streaming_mapping() {
+        let mapping = RouteMapping::new("events.v1.EventService", "StreamEvents")
+            .add_mapping(HttpMethod::Get, "/v1/events/stream")
+            .unwrap()
+            .server_streaming();
+
+        assert_eq!(mapping.streaming_mode, StreamingMode::ServerStreaming);
+        assert!(mapping.is_streaming());
+        assert!(mapping.streaming_config.is_some());
+        let config = mapping.streaming_config.as_ref().unwrap();
+        assert!(config.enable_sse);
+    }
+
+    #[test]
+    fn test_client_streaming_mapping() {
+        let mapping = RouteMapping::new("upload.v1.UploadService", "Upload")
+            .add_mapping(HttpMethod::Post, "/v1/upload")
+            .unwrap()
+            .client_streaming();
+
+        assert_eq!(mapping.streaming_mode, StreamingMode::ClientStreaming);
+        assert!(mapping.is_streaming());
+        let config = mapping.streaming_config.as_ref().unwrap();
+        assert!(config.enable_client_streaming);
+    }
+
+    #[test]
+    fn test_bidirectional_streaming_mapping() {
+        let mapping = RouteMapping::new("chat.v1.ChatService", "Chat")
+            .add_mapping(HttpMethod::Post, "/v1/chat")
+            .unwrap()
+            .bidirectional_streaming();
+
+        assert_eq!(mapping.streaming_mode, StreamingMode::Bidirectional);
+        assert!(mapping.is_streaming());
+        let config = mapping.streaming_config.as_ref().unwrap();
+        assert!(config.enable_sse);
+        assert!(config.enable_ndjson);
+        assert!(config.enable_client_streaming);
+    }
+
+    #[test]
+    fn test_custom_streaming_config() {
+        let custom_config = StreamingConfig {
+            enable_sse: false,
+            enable_ndjson: true,
+            enable_client_streaming: false,
+            default_format: Some(crate::streaming::StreamingFormat::Ndjson),
+            keep_alive_secs: Some(60),
+        };
+
+        let mapping = RouteMapping::new("logs.v1.LogService", "TailLogs")
+            .add_mapping(HttpMethod::Get, "/v1/logs/tail")
+            .unwrap()
+            .with_streaming_mode(StreamingMode::ServerStreaming)
+            .with_streaming_config(custom_config);
+
+        assert!(mapping.is_streaming());
+        let config = mapping.streaming_config.as_ref().unwrap();
+        assert!(!config.enable_sse);
+        assert!(config.enable_ndjson);
+        assert_eq!(config.keep_alive_secs, Some(60));
     }
 }

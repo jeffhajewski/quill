@@ -8,6 +8,7 @@ This guide covers the REST gateway for Quill RPC services, which provides RESTfu
 - [Quick Start](#quick-start)
 - [URL Mapping](#url-mapping)
 - [HTTP Method Routing](#http-method-routing)
+- [Streaming Support](#streaming-support)
 - [OpenAPI Specification](#openapi-specification)
 - [Error Handling](#error-handling)
 - [Message Converter](#message-converter)
@@ -251,6 +252,251 @@ RouteMapping::new("users.v1.UserService", "GetUser")
     .add_mapping(HttpMethod::Get, "/v1/users/{id}")?
     .add_mapping(HttpMethod::Get, "/v1/profiles/{id}")?  // Alias
 ```
+
+## Streaming Support
+
+The REST gateway supports streaming RPCs via Server-Sent Events (SSE) and NDJSON.
+
+### Server-Sent Events (SSE)
+
+Use SSE for server-streaming RPCs (real-time updates, event streams):
+
+```rust
+use quill_rest_gateway::{RestGatewayBuilder, RouteMapping, HttpMethod, StreamingConfig};
+
+// Configure a server-streaming route with SSE
+let route = RouteMapping::new("events.v1.EventService", "StreamEvents")
+    .add_mapping(HttpMethod::Get, "/v1/events/stream")?
+    .server_streaming();  // Enables SSE by default
+
+// Or with custom streaming configuration
+let custom_route = RouteMapping::new("logs.v1.LogService", "TailLogs")
+    .add_mapping(HttpMethod::Get, "/v1/logs/tail")?
+    .with_streaming_config(StreamingConfig::sse());
+```
+
+**Client Usage**:
+
+```javascript
+// JavaScript EventSource
+const events = new EventSource('/api/v1/events/stream');
+
+events.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Received:', data);
+};
+
+events.onerror = (error) => {
+    console.error('SSE error:', error);
+    events.close();
+};
+```
+
+```bash
+# curl
+curl -N http://localhost:3000/api/v1/events/stream \
+  -H "Accept: text/event-stream"
+```
+
+**SSE Response Format**:
+
+```
+event: update
+id: msg-1
+data: {"type": "user_joined", "user": "alice"}
+
+event: update
+id: msg-2
+data: {"type": "message", "content": "Hello!"}
+
+```
+
+### NDJSON Streaming
+
+Use NDJSON (Newline-Delimited JSON) for streaming:
+
+```rust
+use quill_rest_gateway::{StreamingConfig, StreamingFormat};
+
+// Configure NDJSON streaming
+let route = RouteMapping::new("logs.v1.LogService", "TailLogs")
+    .add_mapping(HttpMethod::Get, "/v1/logs/tail")?
+    .with_streaming_config(StreamingConfig::ndjson());
+```
+
+**Client Usage**:
+
+```bash
+# Each line is a complete JSON object
+curl http://localhost:3000/api/v1/logs/tail \
+  -H "Accept: application/x-ndjson"
+
+# Response:
+{"timestamp": "2024-01-15T10:00:00Z", "message": "Log entry 1"}
+{"timestamp": "2024-01-15T10:00:01Z", "message": "Log entry 2"}
+{"timestamp": "2024-01-15T10:00:02Z", "message": "Log entry 3"}
+```
+
+```javascript
+// JavaScript fetch with streaming
+const response = await fetch('/api/v1/logs/tail', {
+    headers: { 'Accept': 'application/x-ndjson' }
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+let buffer = '';
+
+while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // Keep incomplete line
+
+    for (const line of lines) {
+        if (line.trim()) {
+            const data = JSON.parse(line);
+            console.log('Received:', data);
+        }
+    }
+}
+```
+
+### Client Streaming
+
+For client-streaming RPCs (file uploads, batch processing):
+
+```rust
+// Configure client streaming route
+let route = RouteMapping::new("upload.v1.UploadService", "Upload")
+    .add_mapping(HttpMethod::Post, "/v1/upload")?
+    .client_streaming();
+```
+
+**Client Usage with NDJSON**:
+
+```bash
+# Stream NDJSON data
+curl -X POST http://localhost:3000/api/v1/upload \
+  -H "Content-Type: application/x-ndjson" \
+  -d '{"chunk": 1, "data": "base64..."}
+{"chunk": 2, "data": "base64..."}
+{"chunk": 3, "data": "base64..."}'
+```
+
+**Client Usage with Multipart**:
+
+```bash
+# Multipart form data
+curl -X POST http://localhost:3000/api/v1/upload \
+  -F "file=@document.pdf" \
+  -F "metadata={\"name\": \"document.pdf\"};type=application/json"
+```
+
+### Bidirectional Streaming
+
+For bidirectional streaming (chat, real-time collaboration):
+
+```rust
+// Configure bidirectional streaming
+let route = RouteMapping::new("chat.v1.ChatService", "Chat")
+    .add_mapping(HttpMethod::Post, "/v1/chat")?
+    .bidirectional_streaming();
+```
+
+Note: Full bidirectional streaming over HTTP requires WebSocket or HTTP/2 push.
+For REST, this typically means client sends requests and receives SSE responses.
+
+### Streaming Configuration Options
+
+```rust
+use quill_rest_gateway::{StreamingConfig, StreamingFormat};
+
+// SSE configuration
+let sse_config = StreamingConfig {
+    enable_sse: true,
+    enable_ndjson: false,
+    enable_client_streaming: false,
+    default_format: Some(StreamingFormat::Sse),
+    keep_alive_secs: Some(30),  // SSE keep-alive ping interval
+};
+
+// NDJSON configuration
+let ndjson_config = StreamingConfig {
+    enable_sse: false,
+    enable_ndjson: true,
+    enable_client_streaming: false,
+    default_format: Some(StreamingFormat::Ndjson),
+    keep_alive_secs: None,
+};
+
+// Client streaming configuration
+let client_config = StreamingConfig {
+    enable_sse: false,
+    enable_ndjson: false,
+    enable_client_streaming: true,
+    default_format: None,
+    keep_alive_secs: None,
+};
+
+// Full bidirectional (for WebSocket upgrade or SSE + NDJSON)
+let bidi_config = StreamingConfig::bidirectional();
+```
+
+### Streaming Response Builder
+
+Build streaming responses programmatically:
+
+```rust
+use quill_rest_gateway::{StreamingResponse, StreamingFormat, SseEvent};
+use futures_util::stream;
+
+// Build SSE response
+let values = vec![
+    serde_json::json!({"event": "start"}),
+    serde_json::json!({"event": "data", "value": 42}),
+    serde_json::json!({"event": "end"}),
+];
+let stream = stream::iter(values);
+
+let response = StreamingResponse::new(StreamingFormat::Sse)
+    .with_keep_alive(30)
+    .build(stream);
+```
+
+### Chunked Request Reader
+
+Parse streaming client requests:
+
+```rust
+use quill_rest_gateway::{ChunkedRequestReader, ContentType};
+
+// Create reader from Content-Type header
+let mut reader = ChunkedRequestReader::from_content_type("application/x-ndjson");
+
+// Feed chunks as they arrive
+let chunks = reader.feed(b"{\"msg\":\"hello\"}\n{\"msg\":\"world\"}\n");
+for chunk in chunks {
+    if let Some(json) = chunk.to_json() {
+        println!("Received: {}", json);
+    }
+}
+
+// Get any remaining data
+if let Some(remaining) = reader.finish() {
+    println!("Final chunk: {:?}", remaining.to_json());
+}
+```
+
+### Streaming Modes
+
+| Mode | Direction | Format | Use Case |
+|------|-----------|--------|----------|
+| Server Streaming | Server → Client | SSE, NDJSON | Real-time updates, log tailing |
+| Client Streaming | Client → Server | NDJSON, Multipart | File uploads, batch imports |
+| Bidirectional | Both | SSE + NDJSON | Chat, collaborative editing |
 
 ## OpenAPI Specification
 

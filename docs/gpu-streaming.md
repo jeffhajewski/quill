@@ -570,11 +570,84 @@ fn main() {
 2. Set `CUDA_PATH` environment variable
 3. Check cudarc requirements
 
+## ML Framework Integration
+
+### DLPack Protocol
+
+DLPack enables zero-copy tensor interchange with PyTorch, JAX, and other frameworks:
+
+```rust
+use quill_tensor::{Tensor, TensorMeta, DType, DLPackCapsule};
+
+// Export tensor to DLPack
+let meta = TensorMeta::new(vec![2, 3], DType::Float32);
+let tensor = Tensor::zeros(meta);
+let capsule = DLPackCapsule::from_tensor(&tensor)?;
+
+// Import from DLPack
+let imported = capsule.to_tensor()?;
+```
+
+#### Python Usage
+
+```python
+import quill
+import torch
+
+# Create a Quill tensor
+tensor = quill.Tensor.zeros([2, 3], quill.DType.float32())
+
+# Export to DLPack for PyTorch
+capsule = tensor.to_dlpack()
+# torch_tensor = torch.from_dlpack(capsule)
+
+# Or use NumPy interop
+arr = tensor.to_numpy()
+```
+
+### CUDA Array Interface
+
+For CuPy and Numba interoperability, GPU tensors expose `__cuda_array_interface__`:
+
+```python
+import quill
+import cupy as cp
+
+# If tensor is on GPU
+if tensor.cuda_array_interface is not None:
+    # Zero-copy view in CuPy
+    cp_array = cp.asarray(tensor)
+```
+
+### Python GPU Bindings
+
+```python
+import quill
+
+# Check GPU availability
+status = quill.GpuStatus.detect()
+print(f"GPU available: {status.is_available}")
+print(f"Device count: {status.device_count}")
+print(status.message())
+
+# Work with tensor buffers
+buf = quill.TensorBuffer.cpu_zeros(1024)
+print(f"Buffer size: {buf.size}, on_gpu: {buf.is_gpu}")
+
+# Try to allocate on GPU (falls back to CPU if unavailable)
+gpu_buf = quill.TensorBuffer.try_allocate_gpu(1024 * 1024, device_id=0)
+print(f"Allocated on: {'GPU' if gpu_buf.is_gpu else 'CPU'}")
+
+# Convert between CPU and GPU
+cpu_buf = gpu_buf.to_cpu()
+data = cpu_buf.to_bytes()
+```
+
 ## Future Enhancements
 
-- **Phase 19.4**: DLPack for PyTorch/JAX interop, Python bindings
 - **Async DMA**: Asynchronous memory transfers for overlapping compute
 - **Multi-stream**: Concurrent transfers and compute on different CUDA streams
+- **Full DLPack import**: Complete `__dlpack__` protocol support
 
 ## See Also
 

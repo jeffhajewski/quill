@@ -35,11 +35,13 @@ use pyo3::prelude::*;
 
 mod client;
 mod dtype;
+mod gpu;
 mod tensor;
 mod token;
 
 pub use client::PyQuillClient;
 pub use dtype::PyDType;
+pub use gpu::{PyDLPackCapsule, PyGpuStatus, PyTensorBuffer};
 pub use tensor::{PyTensor, PyTensorMeta};
 pub use token::{PyToken, PyTokenBatch};
 
@@ -52,6 +54,11 @@ fn quill(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Tensor types
     m.add_class::<PyTensor>()?;
     m.add_class::<PyTensorMeta>()?;
+
+    // GPU support
+    m.add_class::<PyGpuStatus>()?;
+    m.add_class::<PyTensorBuffer>()?;
+    m.add_class::<PyDLPackCapsule>()?;
 
     // Token types for LLM inference
     m.add_class::<PyToken>()?;

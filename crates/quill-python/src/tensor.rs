@@ -295,6 +295,22 @@ impl PyTensor {
         Ok(pyo3::types::PyBytes::new_bound(py, &self.data))
     }
 
+    /// Exports tensor to DLPack format.
+    ///
+    /// The returned capsule can be passed to PyTorch's `torch.from_dlpack()`,
+    /// JAX's `jax.dlpack.from_dlpack()`, or other DLPack-compatible libraries.
+    ///
+    /// Returns:
+    ///     DLPackCapsule for interchange
+    ///
+    /// Example:
+    ///     >>> tensor = quill.Tensor.zeros([2, 3], quill.DType.float32())
+    ///     >>> capsule = tensor.to_dlpack()
+    ///     >>> # torch_tensor = torch.from_dlpack(capsule)
+    fn to_dlpack(&self) -> PyResult<crate::gpu::PyDLPackCapsule> {
+        crate::gpu::PyDLPackCapsule::from_tensor_data(&self.meta, &self.data)
+    }
+
     fn __repr__(&self) -> String {
         let name_str = self.meta.name.as_deref().unwrap_or("unnamed");
         format!(

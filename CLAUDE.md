@@ -474,7 +474,7 @@ service ImageService {
 - [x] Comprehensive README with API reference
 - [x] Complete Python bindings documentation (docs/python-bindings.md)
 
-### Phase 19: Zero-Copy GPU Tensor Streaming (Phase 19.3 ✅)
+### Phase 19: Zero-Copy GPU Tensor Streaming (Phase 19.4 ✅)
 **Goal**: Enable direct network-to-GPU tensor transfers, bypassing CPU serialization for massive ML inference workloads.
 
 **Phase 19.1: Foundation** (cudarc integration) ✅:
@@ -512,10 +512,14 @@ service ImageService {
 - [ ] Async DMA transfers with CUDA streams (future)
 - [ ] Multi-GPU device routing (future)
 
-**Phase 19.4: ML Framework Integration** (Planned):
-- [ ] DLPack protocol for PyTorch/JAX interop
-- [ ] CUDA Array Interface
-- [ ] Python bindings for GPU tensors
+**Phase 19.4: ML Framework Integration** ✅:
+- [x] DLPack protocol implementation (DLTensor, DLManagedTensor, DLPackCapsule)
+- [x] Device/dtype conversion between DLPack and Quill formats
+- [x] CUDA Array Interface (CudaArrayInterface struct)
+- [x] Python bindings for GPU (PyGpuStatus, PyTensorBuffer, PyDLPackCapsule)
+- [x] `Tensor.to_dlpack()` method for ML framework interop
+- [x] 68 quill-tensor tests (8 new DLPack tests)
+- [x] Comprehensive ML framework integration documentation
 
 ### Phase 20: REST Gateway RPC Integration ✅
 - [x] Implement actual RPC call logic in REST gateway router
@@ -523,14 +527,26 @@ service ImageService {
 - [x] Protobuf-to-JSON response conversion
 - [x] Path parameter injection into RPC payloads
 - [x] Query parameter merging for GET requests
-- [ ] Server-streaming via SSE or chunked transfer (future)
-- [ ] Client-streaming via multipart or chunked requests (future)
 
 ### Phase 21: CLI Completion ✅
 - [x] `quill compat` - Full breaking change detection with Buf integration
 - [x] `quill explain` - Payload decoding with file descriptor sets
 - [x] Multiple output formats (JSON, text, debug)
 - [x] Auto-detection of hex/base64/file input
+
+### Phase 22: REST Gateway Streaming ✅
+- [x] Server-Sent Events (SSE) for server-streaming RPCs
+- [x] NDJSON (Newline-Delimited JSON) streaming format
+- [x] EventSource-compatible SSE response format
+- [x] Chunked transfer encoding for client streaming
+- [x] Multipart request parsing for file uploads
+- [x] ChunkedRequestReader for NDJSON/multipart parsing
+- [x] StreamingConfig for route-level streaming configuration
+- [x] StreamingMode enum (Unary, ServerStreaming, ClientStreaming, Bidirectional)
+- [x] StreamingResponse builder for programmatic stream construction
+- [x] Content-Type negotiation (SSE vs NDJSON vs JSON)
+- [x] 63 REST gateway tests (7 new streaming tests)
+- [x] Comprehensive streaming documentation in rest-gateway.md
 
 ### Current Implementation Notes
 
@@ -571,10 +587,12 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 - `crates/quill-rest-gateway/src/router.rs` - REST gateway router and RPC handler
 - `crates/quill-rest-gateway/src/converter.rs` - JSON ↔ Protobuf conversion (MessageConverter)
 - `crates/quill-rest-gateway/src/error.rs` - Problem Details error mapping
+- `crates/quill-rest-gateway/src/streaming.rs` - SSE, NDJSON, and chunked request streaming
 - `crates/quill-tensor/src/dtype.rs` - ML data types (f32, f16, bf16, etc.)
 - `crates/quill-tensor/src/tensor.rs` - Tensor, TensorMeta, TensorView types
 - `crates/quill-tensor/src/buffer.rs` - TensorBuffer, CudaBuffer, GpuStatus for GPU support
 - `crates/quill-tensor/src/pool.rs` - PinnedMemoryPool, GpuMemoryPool for efficient buffer reuse
+- `crates/quill-tensor/src/dlpack.rs` - DLPack protocol for ML framework interop
 - `crates/quill-tensor/src/frame.rs` - Zero-copy TensorFrame protocol
 - `crates/quill-tensor/src/stream.rs` - TensorStream, TensorSender, TensorReceiver, PooledGpuReceiver
 - `crates/quill-tensor/src/token.rs` - Token, TokenBatch, TokenStream for LLM
@@ -595,6 +613,7 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 - `crates/quill-python/src/tensor.rs` - PyTensor, PyTensorMeta bindings
 - `crates/quill-python/src/token.rs` - PyToken, PyTokenBatch bindings
 - `crates/quill-python/src/client.rs` - PyQuillClient bindings
+- `crates/quill-python/src/gpu.rs` - PyGpuStatus, PyTensorBuffer, PyDLPackCapsule bindings
 - `docs/flow-control.md` - Detailed flow control documentation
 - `docs/compression.md` - Compression usage and guidelines
 - `docs/tracing.md` - OpenTelemetry tracing guide
@@ -639,4 +658,4 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 
 **Python Bindings**: PyO3-based Python package (`quill`) for ML inference and tensor streaming. Provides PyDType (ML data types), PyTensor/PyTensorMeta (NumPy integration), PyToken/PyTokenBatch (LLM token streaming), and PyQuillClient (RPC calls). Build with maturin: `cd crates/quill-python && maturin develop`. Tests require `python-tests` feature flag. See `docs/python-bindings.md` for comprehensive guide.
 
-**Tests**: 318 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, GPU streaming tests, LLM inference example tests, Python binding tests, and benchmark tests)
+**Tests**: 363 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, REST gateway streaming tests (SSE, NDJSON, chunked), authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, GPU streaming tests, DLPack tests, LLM inference example tests, Python binding tests, and benchmark tests)

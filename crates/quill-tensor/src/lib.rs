@@ -38,6 +38,7 @@
 //! ```
 
 pub mod buffer;
+pub mod dlpack;
 pub mod dtype;
 pub mod frame;
 pub mod pool;
@@ -46,6 +47,10 @@ pub mod tensor;
 pub mod token;
 
 pub use buffer::{GpuError, GpuResult, GpuStatus, TensorBuffer};
+pub use dlpack::{
+    CudaArrayInterface, DLDataType, DLDevice, DLDeviceType, DLManagedTensor, DLPackCapsule,
+    DLPackError, DLTensor,
+};
 pub use dtype::DType;
 pub use frame::{FrameType, TensorFrame, TensorFrameError, TensorFrameParser};
 pub use pool::{
