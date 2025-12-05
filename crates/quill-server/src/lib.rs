@@ -12,6 +12,7 @@
 pub mod h3_server;
 pub mod handler;
 pub mod middleware;
+pub mod negotiation;
 pub mod observability;
 pub mod request_stream;
 pub mod router;
@@ -22,6 +23,9 @@ pub mod streaming;
 #[cfg(feature = "http3")]
 pub use h3_server::{H3ServerBuilder, H3ServerConfig, QuillH3Server};
 pub use handler::RpcHandler;
+pub use negotiation::{
+    negotiate_profile, NegotiationResult, ProfileSupport, PREFER_HEADER, SELECTED_PRISM_HEADER,
+};
 pub use observability::{check_dependency, DependencyStatus, HealthStatus, ObservabilityCollector};
 pub use request_stream::RequestFrameStream;
 pub use router::{parse_rpc_path, RpcRouter};

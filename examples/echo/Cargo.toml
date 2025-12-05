@@ -17,6 +17,7 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 tokio-stream = "0.1"
+http = { workspace = true }
 
 [build-dependencies]
 prost-build = { workspace = true }

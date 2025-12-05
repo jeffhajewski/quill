@@ -586,6 +586,22 @@ service ImageService {
 - [x] Fuzz testing documentation (`fuzz/README.md`)
 - [x] 377 total tests passing (14 new security tests)
 
+### Phase 26: E2E Profile Tests & Negotiation ✅
+- [x] Profile negotiation module (`quill-server/src/negotiation.rs`)
+- [x] `ProfileSupport` for server profile configuration
+- [x] `negotiate_profile()` function implementing Prism negotiation
+- [x] `NegotiationResult` enum (Negotiated, Default, NoCommonProfile, MinimumNotMet)
+- [x] `Prefer` header parsing from client
+- [x] `Selected-Prism` header generation for responses
+- [x] Minimum profile enforcement for routes
+- [x] 22 E2E profile tests (`examples/echo/tests/e2e_profiles.rs`)
+- [x] Classic profile scenario tests (enterprise proxy)
+- [x] Turbo profile scenario tests (internal cluster)
+- [x] Hyper profile scenario tests (mobile client)
+- [x] Browser -> Edge H3 -> Internal H2 scenario test
+- [x] 6 negotiation module unit tests
+- [x] 405 total tests passing (28 new profile tests)
+
 ### Current Implementation Notes
 
 **Streaming Architecture**: Implemented using chunked transfer encoding over HTTP/1.1 and native HTTP/2 streams. Response streams use `UnsyncBoxBody` for efficient frame streaming. Request streams are currently buffered before transmission. HTTP/2 multiplexing enables concurrent streams over a single connection.
@@ -613,6 +629,7 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 - `crates/quill-server/src/middleware.rs` - Compression and tracing utilities
 - `crates/quill-server/src/observability.rs` - Metrics collection and health checks
 - `crates/quill-server/src/security.rs` - 0-RTT protection and compression side-channel mitigation
+- `crates/quill-server/src/negotiation.rs` - Prism profile negotiation
 - `crates/quill-server/src/h3_server.rs` - HTTP/3 server with RPC routing
 - `crates/quill-transport/src/classic.rs` - HTTP/1.1 transport (Classic profile)
 - `crates/quill-transport/src/turbo.rs` - HTTP/2 transport (Turbo profile)
@@ -699,4 +716,4 @@ Flags: DATA (0x01), END_STREAM (0x02), CANCEL (0x04), CREDIT (0x08)
 
 **Python Bindings**: PyO3-based Python package (`quill`) for ML inference and tensor streaming. Provides PyDType (ML data types), PyTensor/PyTensorMeta (NumPy integration), PyToken/PyTokenBatch (LLM token streaming), and PyQuillClient (RPC calls). Build with maturin: `cd crates/quill-python && maturin develop`. Tests require `python-tests` feature flag. See `docs/python-bindings.md` for comprehensive guide.
 
-**Tests**: 377 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, REST gateway streaming tests (SSE, NDJSON, chunked), authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, GPU streaming tests, DLPack tests, LLM inference example tests, Python binding tests, security tests (0-RTT, compression exclusions), and benchmark tests)
+**Tests**: 405 tests passing across all crates and examples (unit tests, integration tests, middleware tests, CLI tests, retry/circuit breaker tests, observability tests, gRPC bridge tests with streaming, gRPC bridge example tests, HTTP/3 transport tests, HTTP/3 datagram tests, HTTP/3 datagram example tests, HTTP/3 example tests (h3-echo, h3-streaming), WebTransport transport tests, WebTransport example tests, REST gateway tests, REST gateway streaming tests (SSE, NDJSON, chunked), authentication tests, CORS tests, rate limit tests, tensor tests, GPU buffer tests, GPU streaming tests, DLPack tests, LLM inference example tests, Python binding tests, security tests (0-RTT, compression exclusions), profile negotiation tests, E2E profile scenario tests, and benchmark tests)
