@@ -96,12 +96,16 @@ let client = QuillClient::builder()
 
 // Unary call
 let response = client
-    .call("greeter.v1.Greeter/SayHello", request.encode_to_vec().into())
+    .call("greeter.v1.Greeter", "SayHello", request.encode_to_vec().into())
     .await?;
 
 // Streaming call
 let mut stream = client
-    .call_server_streaming("greeter.v1.Greeter/SayHelloStream", request.encode_to_vec().into())
+    .call_server_streaming(
+        "greeter.v1.Greeter",
+        "SayHelloStream",
+        request.encode_to_vec().into(),
+    )
     .await?;
 
 while let Some(response) = stream.next().await {
@@ -112,10 +116,14 @@ while let Some(response) = stream.next().await {
 ## CLI Usage
 
 ```bash
+protoc --descriptor_set_out=greeter.pb --include_imports examples/greeter/proto/greeter.proto
+
 quill call http://127.0.0.1:8080/greeter.v1.Greeter/SayHello \
+  --descriptor-set greeter.pb \
   --input '{"name": "World"}'
 
 quill call http://127.0.0.1:8080/greeter.v1.Greeter/SayHelloStream \
+  --descriptor-set greeter.pb \
   --input '{"name": "Streamer", "count": 5}' \
   --stream
 ```

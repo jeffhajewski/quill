@@ -56,7 +56,9 @@ quill gen --lang go --include ./vendor/proto
 
 ## quill call
 
-Make RPC calls to Quill services. Think "curl for protobuf".
+Make RPC calls to Quill services. Think "curl for protobuf", with optional descriptor-driven JSON encoding and decoding.
+
+Generate descriptor sets with `protoc --descriptor_set_out=api.pb --include_imports api.proto`.
 
 ### Usage
 
@@ -74,49 +76,64 @@ quill call <URL> [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--in <DATA>` | Request body as JSON or `@file.json` |
+| `--input, --in <DATA>` | Request body, stdin, or `@file` |
+| `--descriptor-set <FILE>` | Enable JSON <-> protobuf conversion for the target method |
+| `--input-format <FMT>` | `auto`, `json`, `text`, `hex`, `base64`, or `file` |
+| `--output-format <FMT>` | `auto`, `raw`, `json`, `json-pretty`, `hex`, or `base64` |
 | `--header <K:V>` | Add request header (can be repeated) |
 | `--stream` | Enable streaming mode |
 | `--prism <PROFILE>` | Transport profile: `classic`, `turbo`, `hyper` |
 | `--accept <TYPE>` | Accept content type |
 | `--timeout <SECS>` | Request timeout in seconds |
 | `--compress` | Enable request compression |
+| `--pretty` | Pretty-print JSON output |
 
 ### Examples
 
 ```bash
-# Simple unary call
+# Simple unary call with JSON <-> protobuf conversion
 quill call http://localhost:8080/users.v1.UserService/GetUser \
-  --in '{"user_id": "123"}'
+  --descriptor-set api.pb \
+  --input '{"user_id": "123"}'
 
 # With headers
 quill call http://localhost:8080/api.v1.Service/Method \
-  --in '{"key": "value"}' \
+  --descriptor-set api.pb \
+  --input '{"key": "value"}' \
   --header "Authorization: Bearer token123"
 
 # Server streaming
 quill call http://localhost:8080/logs.v1.LogService/TailLogs \
-  --in '{"filter": "level=ERROR"}' \
-  --stream
+  --descriptor-set logs.pb \
+  --input '{"filter": "level=ERROR"}' \
+  --stream \
+  --pretty
+
+# Raw bytes call
+quill call http://localhost:8080/echo.v1.EchoService/Echo \
+  --input "hello from quill-cli"
 
 # Using a specific transport profile
 quill call http://localhost:8080/service/method \
-  --in '{"data": "test"}' \
+  --descriptor-set service.pb \
+  --input '{"data": "test"}' \
   --prism turbo
 
-# Read input from file
+# Read input from a JSON file
 quill call http://localhost:8080/service/method \
-  --in @request.json
+  --descriptor-set service.pb \
+  --input @request.json
 
-# With timeout
+# Read raw bytes from a file
 quill call http://localhost:8080/service/method \
-  --in '{}' \
-  --timeout 60
+  --input payload.bin \
+  --input-format file \
+  --output-format hex
 ```
 
 ### Output Format
 
-Responses are printed as JSON:
+When `--descriptor-set` is provided, JSON requests are encoded to protobuf and protobuf responses can be rendered back to JSON:
 
 ```json
 {
@@ -125,6 +142,8 @@ Responses are printed as JSON:
   "email": "alice@example.com"
 }
 ```
+
+Without a descriptor set, the CLI sends raw bytes and writes raw bytes unless you explicitly request another output format.
 
 For streaming responses, each message is printed on a separate line:
 
@@ -471,7 +490,9 @@ export QUILL_TOKEN=my-api-token
 export QUILL_TIMEOUT=30
 
 # Now just use method path
-quill call /users.v1.UserService/GetUser --in '{"user_id": "123"}'
+quill call /users.v1.UserService/GetUser \
+  --descriptor-set api.pb \
+  --input '{"user_id": "123"}'
 ```
 
 ## Shell Completion

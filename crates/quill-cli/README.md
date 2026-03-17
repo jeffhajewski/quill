@@ -49,36 +49,51 @@ fn main() -> std::io::Result<()> {
 
 ### `quill call` - Make RPC Calls
 
-Make RPC calls to Quill services (curl-for-proto):
+Make RPC calls to Quill services. With a descriptor set, the CLI can encode JSON requests to protobuf and decode protobuf responses back to JSON. Without one, it sends raw bytes and writes raw bytes by default.
+
+Generate a descriptor set with `protoc --descriptor_set_out=service.pb --include_imports path/to/service.proto`.
 
 ```bash
-# Unary call
+# Unary call with JSON <-> protobuf conversion
 quill call http://localhost:8080/greeter.v1.Greeter/SayHello \
+  --descriptor-set greeter.pb \
   --input '{"name":"World"}' \
   --pretty
 
 # Server streaming call
 quill call http://localhost:8080/greeter.v1.Greeter/SayHelloStream \
+  --descriptor-set greeter.pb \
   --input '{"name":"World"}' \
   --stream \
   --pretty
 
-# Read input from file
-quill call http://localhost:8080/service/Method \
-  --input @request.json
+# Raw bytes call
+quill call http://localhost:8080/echo.v1.EchoService/Echo \
+  --input "hello from quill-cli"
 
 # Add custom headers
 quill call http://localhost:8080/service/Method \
+  --descriptor-set service.pb \
   --input '{}' \
   -H "Authorization:Bearer token" \
   -H "X-Custom-Header:value"
+
+# Relative path with QUILL_URL
+export QUILL_URL=http://localhost:8080
+quill call /greeter.v1.Greeter/SayHello \
+  --descriptor-set greeter.pb \
+  --input '{"name":"World"}'
 ```
 
 **Options:**
-- `<URL>` - RPC endpoint URL in format `http://host:port/package.Service/Method`
-- `-i, --input <JSON>` - Input JSON string or `@file` path
-- `-H, --headers <KEY:VALUE>` - Additional headers
+- `<URL>` - RPC endpoint URL, or a relative `/package.Service/Method` path when `QUILL_URL` is set
+- `-i, --input, --in <DATA>` - Input data or `@file` path
+- `--descriptor-set <FILE>` - Enable JSON <-> protobuf conversion for the target method
+- `--input-format <FMT>` - `auto`, `json`, `text`, `hex`, `base64`, or `file`
+- `--output-format <FMT>` - `auto`, `raw`, `json`, `json-pretty`, `hex`, or `base64`
+- `-H, --headers, --header <KEY:VALUE>` - Additional headers
 - `--stream` - Enable server streaming mode
+- `--accept <TYPE>` - Override the `Accept` header
 - `--compress` - Enable compression
 - `--pretty` - Pretty-print JSON output
 - `--timeout <SECONDS>` - Request timeout (default: 30)
@@ -179,14 +194,16 @@ quill gen proto/api.proto \
 ```bash
 # Simple unary call
 quill call http://localhost:8080/greeter.v1.Greeter/SayHello \
+  --descriptor-set greeter.pb \
   --input '{"name":"Alice"}' \
   --pretty
 
-# Streaming with compression
+# Streaming with descriptor-based JSON output
 quill call http://localhost:8080/logs.v1.LogService/Tail \
+  --descriptor-set logs.pb \
   --input '{"service":"api"}' \
   --stream \
-  --compress
+  --pretty
 ```
 
 ### Run Benchmarks
@@ -207,8 +224,11 @@ quill bench \
 
 The CLI respects the following environment variables:
 
-- `QUILL_BASE_URL` - Default base URL for `call` command
+- `QUILL_URL` - Default base URL for relative `call` endpoints
+- `QUILL_BASE_URL` - Legacy alias for `QUILL_URL`
+- `QUILL_TOKEN` - Default bearer token for `call`
 - `QUILL_TIMEOUT` - Default timeout in seconds
+- `QUILL_PRISM` - Default transport profile preference
 - `OUT_DIR` - Default output directory for `gen` command
 
 ## See Also

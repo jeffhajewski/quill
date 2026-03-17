@@ -97,7 +97,7 @@ A **protobuf-first RPC framework** with adaptive HTTP/1-3 transport, real HTTP e
 
         let request = GreetRequest { name: "World".into() };
         let response = client
-            .call("greeter.v1.Greeter/Greet", request.encode_to_vec().into())
+            .call("greeter.v1.Greeter", "Greet", request.encode_to_vec().into())
             .await?;
 
         let greet = GreetResponse::decode(&response[..])?;
@@ -110,6 +110,7 @@ A **protobuf-first RPC framework** with adaptive HTTP/1-3 transport, real HTTP e
 
     ```bash
     quill call http://localhost:8080/greeter.v1.Greeter/Greet \
+      --descriptor-set greeter.pb \
       --in '{"name": "World"}'
 
     # Output: {"message": "Hello, World!"}

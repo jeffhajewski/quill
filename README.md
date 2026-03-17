@@ -68,8 +68,9 @@ cargo install --path crates/quill-cli
 # Generate code from .proto files
 quill gen proto/service.proto -I proto
 
-# Make RPC calls (curl-for-proto)
+# Make RPC calls (JSON input requires a descriptor set)
 quill call http://localhost:8080/greeter.v1.Greeter/SayHello \
+  --descriptor-set greeter.pb \
   --input '{"name":"World"}' \
   --pretty
 ```
@@ -384,4 +385,3 @@ cargo build -p quill-cli
 ## License
 
 MIT
-

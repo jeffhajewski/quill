@@ -13,7 +13,7 @@ pub mod h3_client;
 pub mod retry;
 pub mod streaming;
 
-pub use client::{ClientConfig, HttpProtocol, QuillClient};
+pub use client::{ClientConfig, HttpProtocol, QuillClient, RequestOptions};
 #[cfg(feature = "http3")]
 pub use h3_client::{H3ClientBuilder, H3ClientConfig, QuillH3Client};
 pub use retry::{CircuitBreaker, CircuitBreakerConfig, CircuitState, RetryPolicy};

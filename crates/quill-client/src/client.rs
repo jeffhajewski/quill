@@ -1,13 +1,16 @@
 //! Quill client implementation
 
+use crate::retry::{CircuitBreaker, RetryPolicy};
+use crate::streaming::encode_request_stream;
 use bytes::Bytes;
-use http::{Method, Request};
+use http::header::{
+    HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_TYPE,
+};
+use http::{HeaderMap, Method, Request};
 use http_body_util::{BodyExt, Full};
 use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use hyper_util::rt::TokioExecutor;
 use quill_core::{CreditTracker, FrameParser, ProfilePreference, QuillError};
-use crate::retry::{CircuitBreaker, RetryPolicy};
-use crate::streaming::encode_request_stream;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -87,6 +90,66 @@ impl Default for ClientConfig {
             retry_policy: None,
             circuit_breaker: None,
         }
+    }
+}
+
+/// Per-request options for unary and streaming calls.
+#[derive(Clone, Debug, Default)]
+pub struct RequestOptions {
+    headers: HeaderMap,
+    accept: Option<HeaderValue>,
+    profile_preference: Option<ProfilePreference>,
+    timeout: Option<Duration>,
+}
+
+impl RequestOptions {
+    /// Create a new options value with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add or replace a request header.
+    pub fn header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.headers.insert(name, value);
+        self
+    }
+
+    /// Add or replace a request header in place.
+    pub fn insert_header(&mut self, name: HeaderName, value: HeaderValue) {
+        self.headers.insert(name, value);
+    }
+
+    /// Override the Accept header for this request.
+    pub fn accept(mut self, value: HeaderValue) -> Self {
+        self.accept = Some(value);
+        self
+    }
+
+    /// Override the Accept header for this request in place.
+    pub fn set_accept(&mut self, value: HeaderValue) {
+        self.accept = Some(value);
+    }
+
+    /// Override the Prism preference header for this request.
+    pub fn profile_preference(mut self, value: ProfilePreference) -> Self {
+        self.profile_preference = Some(value);
+        self
+    }
+
+    /// Override the Prism preference header for this request in place.
+    pub fn set_profile_preference(&mut self, value: ProfilePreference) {
+        self.profile_preference = Some(value);
+    }
+
+    /// Apply a timeout to the request operation.
+    pub fn timeout(mut self, value: Duration) -> Self {
+        self.timeout = Some(value);
+        self
+    }
+
+    /// Apply a timeout to the request operation in place.
+    pub fn set_timeout(&mut self, value: Duration) {
+        self.timeout = Some(value);
     }
 }
 
@@ -205,13 +268,85 @@ impl QuillClient {
     }
 
     /// Decompress data using zstd if it was compressed
-    fn maybe_decompress(&self, data: Bytes, content_encoding: Option<&str>) -> Result<Bytes, QuillError> {
+    fn maybe_decompress(
+        &self,
+        data: Bytes,
+        content_encoding: Option<&str>,
+    ) -> Result<Bytes, QuillError> {
         if let Some("zstd") = content_encoding {
             zstd::decode_all(&data[..])
                 .map(Bytes::from)
                 .map_err(|e| QuillError::Transport(format!("Decompression failed: {}", e)))
         } else {
             Ok(data)
+        }
+    }
+
+    fn build_request(
+        &self,
+        url: &str,
+        request: Bytes,
+        options: &RequestOptions,
+    ) -> Result<Request<Full<Bytes>>, QuillError> {
+        let (request_body, content_encoding) = if self.enable_compression {
+            let compressed = self.maybe_compress(request)?;
+            (compressed, Some("zstd"))
+        } else {
+            (request, None)
+        };
+
+        let mut req_builder = Request::builder().method(Method::POST).uri(url);
+        let headers = req_builder
+            .headers_mut()
+            .ok_or_else(|| QuillError::Transport("Failed to build request headers".to_string()))?;
+
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/proto"));
+        headers.insert(
+            ACCEPT,
+            options.accept.clone().unwrap_or_else(|| HeaderValue::from_static("application/proto")),
+        );
+
+        let prefer = options
+            .profile_preference
+            .as_ref()
+            .unwrap_or(&self.profile_preference)
+            .to_header_value();
+        let prefer = HeaderValue::from_str(&prefer)
+            .map_err(|e| QuillError::Transport(format!("Invalid Prefer header: {}", e)))?;
+        headers.insert(HeaderName::from_static("prefer"), prefer);
+
+        if self.enable_compression {
+            headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("zstd"));
+        }
+        if let Some(encoding) = content_encoding {
+            headers.insert(CONTENT_ENCODING, HeaderValue::from_static(encoding));
+        }
+
+        for (name, value) in options.headers.iter() {
+            headers.insert(name.clone(), value.clone());
+        }
+
+        req_builder
+            .body(Full::new(request_body))
+            .map_err(|e| QuillError::Transport(format!("Failed to build request: {}", e)))
+    }
+
+    async fn with_request_timeout<F, T>(
+        &self,
+        timeout: Option<Duration>,
+        future: F,
+    ) -> Result<T, QuillError>
+    where
+        F: std::future::Future<Output = Result<T, QuillError>>,
+    {
+        match timeout {
+            Some(timeout) => tokio::time::timeout(timeout, future).await.map_err(|_| {
+                QuillError::Transport(format!(
+                    "Request timed out after {:.3} seconds",
+                    timeout.as_secs_f64()
+                ))
+            })?,
+            None => future.await,
         }
     }
 
@@ -268,86 +403,75 @@ impl QuillClient {
         method: &str,
         request: Bytes,
     ) -> Result<Bytes, QuillError> {
+        self.call_with_options(service, method, request, RequestOptions::default()).await
+    }
+
+    /// Make a unary RPC call with per-request options.
+    pub async fn call_with_options(
+        &self,
+        service: &str,
+        method: &str,
+        request: Bytes,
+        options: RequestOptions,
+    ) -> Result<Bytes, QuillError> {
         // Build the full URL
         let url = format!("{}/{}/{}", self.base_url, service, method);
+        let req = self.build_request(&url, request, &options)?;
 
-        // Compress request if enabled
-        let (request_body, content_encoding) = if self.enable_compression {
-            let compressed = self.maybe_compress(request)?;
-            (compressed, Some("zstd"))
-        } else {
-            (request, None)
-        };
+        self.with_request_timeout(options.timeout, async {
+            // Send the request
+            let resp = self
+                .client
+                .request(req)
+                .await
+                .map_err(|e| QuillError::Transport(format!("Failed to send request: {}", e)))?;
 
-        // Build the HTTP request
-        let mut req_builder = Request::builder()
-            .method(Method::POST)
-            .uri(&url)
-            .header("Content-Type", "application/proto")
-            .header("Accept", "application/proto")
-            .header("Prefer", self.profile_preference.to_header_value());
+            // Check status code
+            let status = resp.status();
+            if !status.is_success() {
+                // Try to parse Problem Details
+                let body_bytes = resp
+                    .into_body()
+                    .collect()
+                    .await
+                    .map_err(|e| {
+                        QuillError::Transport(format!("Failed to read error response: {}", e))
+                    })?
+                    .to_bytes();
 
-        // Add compression headers if enabled
-        if self.enable_compression {
-            req_builder = req_builder.header("Accept-Encoding", "zstd");
-        }
-        if let Some(encoding) = content_encoding {
-            req_builder = req_builder.header("Content-Encoding", encoding);
-        }
+                // Try to parse as JSON Problem Details
+                if let Ok(pd) = serde_json::from_slice(&body_bytes) {
+                    return Err(QuillError::ProblemDetails(pd));
+                }
 
-        let req = req_builder
-            .body(Full::new(request_body))
-            .map_err(|e| QuillError::Transport(format!("Failed to build request: {}", e)))?;
+                return Err(QuillError::Rpc(format!(
+                    "RPC failed with status {}: {}",
+                    status,
+                    String::from_utf8_lossy(&body_bytes)
+                )));
+            }
 
-        // Send the request
-        let resp = self
-            .client
-            .request(req)
-            .await
-            .map_err(|e| QuillError::Transport(format!("Failed to send request: {}", e)))?;
+            // Get content encoding before consuming response
+            let content_encoding = resp
+                .headers()
+                .get(CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
 
-        // Check status code
-        let status = resp.status();
-        if !status.is_success() {
-            // Try to parse Problem Details
+            // Read response body
             let body_bytes = resp
                 .into_body()
                 .collect()
                 .await
-                .map_err(|e| QuillError::Transport(format!("Failed to read error response: {}", e)))?
+                .map_err(|e| QuillError::Transport(format!("Failed to read response: {}", e)))?
                 .to_bytes();
 
-            // Try to parse as JSON Problem Details
-            if let Ok(pd) = serde_json::from_slice(&body_bytes) {
-                return Err(QuillError::ProblemDetails(pd));
-            }
+            // Decompress if needed
+            let body_bytes = self.maybe_decompress(body_bytes, content_encoding.as_deref())?;
 
-            return Err(QuillError::Rpc(format!(
-                "RPC failed with status {}: {}",
-                status,
-                String::from_utf8_lossy(&body_bytes)
-            )));
-        }
-
-        // Get content encoding before consuming response
-        let content_encoding = resp
-            .headers()
-            .get("content-encoding")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-
-        // Read response body
-        let body_bytes = resp
-            .into_body()
-            .collect()
-            .await
-            .map_err(|e| QuillError::Transport(format!("Failed to read response: {}", e)))?
-            .to_bytes();
-
-        // Decompress if needed
-        let body_bytes = self.maybe_decompress(body_bytes, content_encoding.as_deref())?;
-
-        Ok(body_bytes)
+            Ok(body_bytes)
+        })
+        .await
     }
 
     /// Make a streaming RPC call (client streaming)
@@ -375,11 +499,23 @@ impl QuillClient {
         method: &str,
         request: Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>,
     ) -> Result<Bytes, QuillError> {
+        self.call_client_streaming_with_options(service, method, request, RequestOptions::default())
+            .await
+    }
+
+    /// Make a client-streaming RPC call with per-request options.
+    pub async fn call_client_streaming_with_options(
+        &self,
+        service: &str,
+        method: &str,
+        request: Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>,
+        options: RequestOptions,
+    ) -> Result<Bytes, QuillError> {
         // Encode the stream into frames
         let encoded = encode_request_stream(request).await?;
 
         // Use regular call with encoded frames
-        self.call(service, method, encoded).await
+        self.call_with_options(service, method, encoded, options).await
     }
 
     /// Receive a streaming response (server streaming)
@@ -407,52 +543,61 @@ impl QuillClient {
         method: &str,
         request: Bytes,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>, QuillError> {
+        self.call_server_streaming_with_options(service, method, request, RequestOptions::default())
+            .await
+    }
+
+    /// Receive a streaming response with per-request options.
+    pub async fn call_server_streaming_with_options(
+        &self,
+        service: &str,
+        method: &str,
+        request: Bytes,
+        options: RequestOptions,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>, QuillError> {
         // Build the full URL
         let url = format!("{}/{}/{}", self.base_url, service, method);
+        let req = self.build_request(&url, request, &options)?;
 
-        // Build the HTTP request
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(&url)
-            .header("Content-Type", "application/proto")
-            .header("Accept", "application/proto")
-            .header("Prefer", self.profile_preference.to_header_value())
-            .body(Full::new(request))
-            .map_err(|e| QuillError::Transport(format!("Failed to build request: {}", e)))?;
-
-        // Send the request
-        let resp = self
-            .client
-            .request(req)
-            .await
-            .map_err(|e| QuillError::Transport(format!("Failed to send request: {}", e)))?;
-
-        // Check status code
-        let status = resp.status();
-        if !status.is_success() {
-            let body_bytes = resp
-                .into_body()
-                .collect()
+        self.with_request_timeout(options.timeout, async {
+            // Send the request
+            let resp = self
+                .client
+                .request(req)
                 .await
-                .map_err(|e| QuillError::Transport(format!("Failed to read error response: {}", e)))?
-                .to_bytes();
+                .map_err(|e| QuillError::Transport(format!("Failed to send request: {}", e)))?;
 
-            if let Ok(pd) = serde_json::from_slice(&body_bytes) {
-                return Err(QuillError::ProblemDetails(pd));
+            // Check status code
+            let status = resp.status();
+            if !status.is_success() {
+                let body_bytes = resp
+                    .into_body()
+                    .collect()
+                    .await
+                    .map_err(|e| {
+                        QuillError::Transport(format!("Failed to read error response: {}", e))
+                    })?
+                    .to_bytes();
+
+                if let Ok(pd) = serde_json::from_slice(&body_bytes) {
+                    return Err(QuillError::ProblemDetails(pd));
+                }
+
+                return Err(QuillError::Rpc(format!(
+                    "RPC failed with status {}: {}",
+                    status,
+                    String::from_utf8_lossy(&body_bytes)
+                )));
             }
 
-            return Err(QuillError::Rpc(format!(
-                "RPC failed with status {}: {}",
-                status,
-                String::from_utf8_lossy(&body_bytes)
-            )));
-        }
+            // Create a stream that parses frames from the response
+            let body = resp.into_body();
+            let frame_stream = ResponseFrameStream::new(body);
 
-        // Create a stream that parses frames from the response
-        let body = resp.into_body();
-        let frame_stream = ResponseFrameStream::new(body);
-
-        Ok(Box::pin(frame_stream))
+            Ok(Box::pin(frame_stream)
+                as Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>)
+        })
+        .await
     }
 
     /// Make a bidirectional streaming RPC call
@@ -480,55 +625,64 @@ impl QuillClient {
         method: &str,
         request: Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>, QuillError> {
+        self.call_bidi_streaming_with_options(service, method, request, RequestOptions::default())
+            .await
+    }
+
+    /// Make a bidirectional streaming RPC call with per-request options.
+    pub async fn call_bidi_streaming_with_options(
+        &self,
+        service: &str,
+        method: &str,
+        request: Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>,
+        options: RequestOptions,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>, QuillError> {
         // Build the full URL
         let url = format!("{}/{}/{}", self.base_url, service, method);
 
         // Encode the request stream into frames
         let encoded = encode_request_stream(request).await?;
+        let req = self.build_request(&url, encoded, &options)?;
 
-        // Build the HTTP request
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(&url)
-            .header("Content-Type", "application/proto")
-            .header("Accept", "application/proto")
-            .header("Prefer", self.profile_preference.to_header_value())
-            .body(Full::new(encoded))
-            .map_err(|e| QuillError::Transport(format!("Failed to build request: {}", e)))?;
-
-        // Send the request
-        let resp = self
-            .client
-            .request(req)
-            .await
-            .map_err(|e| QuillError::Transport(format!("Failed to send request: {}", e)))?;
-
-        // Check status code
-        let status = resp.status();
-        if !status.is_success() {
-            let body_bytes = resp
-                .into_body()
-                .collect()
+        self.with_request_timeout(options.timeout, async {
+            // Send the request
+            let resp = self
+                .client
+                .request(req)
                 .await
-                .map_err(|e| QuillError::Transport(format!("Failed to read error response: {}", e)))?
-                .to_bytes();
+                .map_err(|e| QuillError::Transport(format!("Failed to send request: {}", e)))?;
 
-            if let Ok(pd) = serde_json::from_slice(&body_bytes) {
-                return Err(QuillError::ProblemDetails(pd));
+            // Check status code
+            let status = resp.status();
+            if !status.is_success() {
+                let body_bytes = resp
+                    .into_body()
+                    .collect()
+                    .await
+                    .map_err(|e| {
+                        QuillError::Transport(format!("Failed to read error response: {}", e))
+                    })?
+                    .to_bytes();
+
+                if let Ok(pd) = serde_json::from_slice(&body_bytes) {
+                    return Err(QuillError::ProblemDetails(pd));
+                }
+
+                return Err(QuillError::Rpc(format!(
+                    "RPC failed with status {}: {}",
+                    status,
+                    String::from_utf8_lossy(&body_bytes)
+                )));
             }
 
-            return Err(QuillError::Rpc(format!(
-                "RPC failed with status {}: {}",
-                status,
-                String::from_utf8_lossy(&body_bytes)
-            )));
-        }
+            // Create a stream that parses frames from the response
+            let body = resp.into_body();
+            let frame_stream = ResponseFrameStream::new(body);
 
-        // Create a stream that parses frames from the response
-        let body = resp.into_body();
-        let frame_stream = ResponseFrameStream::new(body);
-
-        Ok(Box::pin(frame_stream))
+            Ok(Box::pin(frame_stream)
+                as Pin<Box<dyn Stream<Item = Result<Bytes, QuillError>> + Send>>)
+        })
+        .await
     }
 }
 
@@ -558,9 +712,9 @@ impl Stream for ResponseFrameStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use std::task::Poll;
         use http_body::Body;
         use quill_core::DEFAULT_CREDIT_REFILL;
+        use std::task::Poll;
 
         loop {
             // Try to parse a frame from buffered data
@@ -599,7 +753,7 @@ impl Stream for ResponseFrameStream {
                     if frame.flags.is_cancel() {
                         // Stream was cancelled by server
                         return Poll::Ready(Some(Err(QuillError::Rpc(
-                            "Stream cancelled by server".to_string()
+                            "Stream cancelled by server".to_string(),
                         ))));
                     }
                     // Other frame types, continue
@@ -636,9 +790,7 @@ impl Stream for ResponseFrameStream {
 
 impl fmt::Debug for QuillClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("QuillClient")
-            .field("base_url", &self.base_url)
-            .finish()
+        f.debug_struct("QuillClient").field("base_url", &self.base_url).finish()
     }
 }
 
@@ -766,17 +918,14 @@ impl ClientBuilder {
 
     /// Enable circuit breaker with default configuration
     pub fn enable_circuit_breaker(mut self) -> Self {
-        self.config.circuit_breaker = Some(Arc::new(CircuitBreaker::new(
-            crate::retry::CircuitBreakerConfig::default(),
-        )));
+        self.config.circuit_breaker =
+            Some(Arc::new(CircuitBreaker::new(crate::retry::CircuitBreakerConfig::default())));
         self
     }
 
     /// Build the client
     pub fn build(self) -> Result<QuillClient, String> {
-        let base_url = self
-            .base_url
-            .ok_or_else(|| "base_url is required".to_string())?;
+        let base_url = self.base_url.ok_or_else(|| "base_url is required".to_string())?;
 
         let client = QuillClient::build_client(&self.config);
 
@@ -805,11 +954,22 @@ mod tests {
 
     #[test]
     fn test_client_builder() {
-        let client = QuillClient::builder()
-            .base_url("http://localhost:8080")
-            .build()
-            .unwrap();
+        let client = QuillClient::builder().base_url("http://localhost:8080").build().unwrap();
 
         assert_eq!(client.base_url, "http://localhost:8080");
+    }
+
+    #[test]
+    fn test_request_options_builder() {
+        let options = RequestOptions::new()
+            .header(HeaderName::from_static("x-test-header"), HeaderValue::from_static("value"))
+            .accept(HeaderValue::from_static("application/json"))
+            .profile_preference(ProfilePreference::new(vec![quill_core::PrismProfile::Turbo]))
+            .timeout(Duration::from_secs(5));
+
+        assert_eq!(options.headers.get("x-test-header"), Some(&HeaderValue::from_static("value")));
+        assert_eq!(options.accept, Some(HeaderValue::from_static("application/json")));
+        assert_eq!(options.profile_preference.unwrap().to_header_value(), "prism=turbo");
+        assert_eq!(options.timeout, Some(Duration::from_secs(5)));
     }
 }

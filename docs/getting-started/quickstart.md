@@ -88,7 +88,7 @@ async fn main() {
         .unwrap();
 
     let response = client
-        .call("echo.v1.EchoService/Echo", b"Hello!".to_vec().into())
+        .call("echo.v1.EchoService", "Echo", b"Hello!".to_vec().into())
         .await
         .unwrap();
 
