@@ -4,6 +4,7 @@
 //! generating type-safe client and server stubs.
 
 pub mod client;
+pub mod playground;
 pub mod server;
 pub mod service;
 
@@ -20,6 +21,8 @@ pub struct QuillConfig {
     pub generate_server: bool,
     /// Package name prefix
     pub package_prefix: Option<String>,
+    /// Generate playground support (ToDebugJson trait, method metadata)
+    pub generate_playground: bool,
 }
 
 impl Default for QuillConfig {
@@ -28,6 +31,7 @@ impl Default for QuillConfig {
             generate_client: true,
             generate_server: true,
             package_prefix: None,
+            generate_playground: false,
         }
     }
 }
@@ -42,6 +46,7 @@ impl QuillConfig {
             generate_client: true,
             generate_server: false,
             package_prefix: None,
+            generate_playground: false,
         }
     }
 
@@ -50,11 +55,22 @@ impl QuillConfig {
             generate_client: false,
             generate_server: true,
             package_prefix: None,
+            generate_playground: false,
         }
     }
 
     pub fn with_package_prefix(mut self, prefix: impl Into<String>) -> Self {
         self.package_prefix = Some(prefix.into());
+        self
+    }
+
+    /// Enable playground support generation.
+    ///
+    /// When enabled, generates:
+    /// - Method metadata (idempotent, real_time, etc.)
+    /// - Enables serde derives for ToDebugJson support
+    pub fn with_playground(mut self, enabled: bool) -> Self {
+        self.generate_playground = enabled;
         self
     }
 }
@@ -79,6 +95,12 @@ pub fn compile_protos(
     config: QuillConfig,
 ) -> Result<()> {
     let mut prost_config = Config::new();
+
+    // When playground is enabled, derive serde traits for ToDebugJson support
+    if config.generate_playground {
+        // Add serde derives to all message types for JSON serialization
+        prost_config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+    }
 
     // Configure prost to generate code
     prost_config.service_generator(Box::new(QuillServiceGenerator::new(config)));
@@ -116,6 +138,13 @@ impl prost_build::ServiceGenerator for QuillServiceGenerator {
                 buf.push_str(&server_code);
                 buf.push('\n');
             }
+        }
+
+        // Generate playground metadata
+        if self.config.generate_playground {
+            let playground_code = playground::generate_playground_metadata(&service, &self.config);
+            buf.push_str(&playground_code.to_string());
+            buf.push('\n');
         }
     }
 }
@@ -160,6 +189,16 @@ mod tests {
         assert!(config.generate_client);
         assert!(config.generate_server);
         assert!(config.package_prefix.is_none());
+        assert!(!config.generate_playground);
+    }
+
+    #[test]
+    fn test_config_with_playground() {
+        let config = QuillConfig::new().with_playground(true);
+        assert!(config.generate_playground);
+
+        let config_disabled = config.with_playground(false);
+        assert!(!config_disabled.generate_playground);
     }
 
     #[test]

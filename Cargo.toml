@@ -11,6 +11,7 @@ members = [
     "crates/quill-grpc-bridge",
     "crates/quill-rest-gateway",
     "crates/quill-tensor",
+    "crates/quill-playground",
     "examples/echo",
     "examples/streaming",
     "examples/chat",
@@ -106,6 +107,7 @@ quill-server = { path = "crates/quill-server" }
 quill-client = { path = "crates/quill-client" }
 quill-codegen = { path = "crates/quill-codegen" }
 quill-tensor = { path = "crates/quill-tensor" }
+quill-playground = { path = "crates/quill-playground" }
 
 [profile.release]
 lto = true

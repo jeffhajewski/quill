@@ -1,0 +1,32 @@
+[package]
+name = "quill-playground"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Playground mode for Quill RPC - distributed systems visualization and control"
+
+[dependencies]
+quill-core = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+futures-core = { workspace = true }
+pin-project-lite = { workspace = true }
+async-trait = "0.1"
+rand = "0.8"
+
+# WebSocket for telemetry (optional)
+tokio-tungstenite = { version = "0.24", optional = true }
+
+[features]
+default = []
+websocket = ["tokio-tungstenite"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
