@@ -11,6 +11,7 @@ pub mod service;
 use prost_build::{Config, Method, Service};
 use std::io::Result;
 use std::path::Path;
+use std::{env, io};
 
 /// Configuration for Quill code generation
 #[derive(Debug, Clone)]
@@ -94,6 +95,8 @@ pub fn compile_protos(
     includes: &[impl AsRef<Path>],
     config: QuillConfig,
 ) -> Result<()> {
+    ensure_protoc()?;
+
     let mut prost_config = Config::new();
 
     // When playground is enabled, derive serde traits for ToDebugJson support
@@ -108,6 +111,17 @@ pub fn compile_protos(
     // Compile the protos
     prost_config.compile_protos(protos, includes)?;
 
+    Ok(())
+}
+
+fn ensure_protoc() -> Result<()> {
+    if env::var_os("PROTOC").is_some() {
+        return Ok(());
+    }
+
+    let protoc = protoc_bin_vendored::protoc_bin_path()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("failed to find protoc: {e}")))?;
+    env::set_var("PROTOC", protoc);
     Ok(())
 }
 

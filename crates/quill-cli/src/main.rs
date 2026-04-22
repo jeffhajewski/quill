@@ -48,10 +48,17 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {:#}", e);
-        std::process::exit(match e.to_string().as_str() {
+        let detail = format!("{:#}", e);
+        eprintln!("Error: {}", detail);
+        std::process::exit(match detail.as_str() {
             s if s.contains("Invalid input") => 2,
-            s if s.contains("Network") || s.contains("Connection") => 3,
+            s if s.contains("Network")
+                || s.contains("Connection")
+                || s.contains("timed out")
+                || s.contains("timeout") =>
+            {
+                3
+            }
             s if s.contains("Server") || s.contains("RPC") => 4,
             _ => 1,
         });

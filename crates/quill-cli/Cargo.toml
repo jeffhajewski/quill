@@ -31,3 +31,11 @@ prost = { workspace = true }
 http = { workspace = true }
 base64 = "0.22"
 hex = "0.4"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true, features = ["server", "tokio"] }
+protoc-bin-vendored = { workspace = true }
+tempfile = "3"

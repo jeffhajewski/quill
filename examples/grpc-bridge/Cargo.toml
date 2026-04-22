@@ -22,6 +22,7 @@ base64-simd = "0.8"
 
 [build-dependencies]
 tonic-build = "0.11"
+protoc-bin-vendored = { workspace = true }
 
 [[bin]]
 name = "grpc-bridge-server"

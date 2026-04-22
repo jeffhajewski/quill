@@ -57,6 +57,7 @@ rustls = { version = "0.23", features = ["ring"] }
 prost = "0.13"
 prost-types = "0.13"
 prost-build = "0.13"
+protoc-bin-vendored = "3"
 
 # Middleware & utilities
 tower = { version = "0.5", features = ["util"] }

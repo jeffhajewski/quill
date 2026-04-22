@@ -14,7 +14,7 @@ quill-transport = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = "0.1"
 hyper = { workspace = true }
-hyper-util = { workspace = true, features = ["client", "client-legacy", "tokio", "http2"] }
+hyper-util = { workspace = true, features = ["client", "client-legacy", "tokio", "http1", "http2"] }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
